@@ -199,12 +199,17 @@ footer b{color:var(--dim)}
   </div>
 
   <div class="card reveal" id="plancard" style="animation-delay:.12s;margin-bottom:var(--s8)">
-    <h2><span class="gl"></span>Plan de séance — marche à suivre</h2>
-    <div class="desc">Biais (tech + fonda) → entrée sur <b style="color:var(--ember-b)">retournement de delta</b> dans une zone → target <b style="color:var(--blue)">zone de valeur</b>.</div>
+    <h2><span class="gl"></span>Plan de séance — marche à suivre<button id="takeBtn" class="rbtn" style="margin-left:auto"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>Prendre la position</button></h2>
+    <div class="desc">Biais (tech + fonda) → entrée sur <b style="color:var(--ember-b)">retournement de delta</b> dans une zone → target <b style="color:var(--blue)">zone de valeur</b>. Le bouton ouvre une position <b>suivie</b> (gestion + trailing stop) — l'exécution réelle reste sur ta plateforme.</div>
     <div class="plan">
       <div id="planLeft"></div>
       <div id="planRight"></div>
     </div>
+  </div>
+
+  <div class="card reveal" id="posPanel" style="animation-delay:.13s;margin-bottom:var(--s8);display:none;border-color:var(--ember)">
+    <h2><span class="gl"></span>Position en cours · trailing stop</h2>
+    <div id="posBody"></div>
   </div>
 
   <div class="grid two">
@@ -378,6 +383,8 @@ function liveTick(live,D){
   if(tv.cs&&_lastBar){_lastBar.close=live.price;_lastBar.high=Math.max(_lastBar.high,live.price);_lastBar.low=Math.min(_lastBar.low,live.price);
     tv.cs.update({time:_lastBar.time,open:_lastBar.open,high:_lastBar.high,low:_lastBar.low,close:_lastBar.close});}
   liveRead(D);computePlan(D);ladder(D);regime(D);
+  if(typeof updateTrail==='function')updateTrail(live.price);
+  if(typeof renderPosition==='function')renderPosition();
   if(!window._recapT||Date.now()-window._recapT>10000){window._recapT=Date.now();renderRecap(D);}
 }
 
@@ -673,6 +680,93 @@ function renderRecap(D){
     return `<tr><td class="mono" style="color:${z.c}">${num(z.p)}</td><td>${z.n}</td><td class="mono" style="color:var(--faint)">${above?'+':'−'}${dist}p</td><td style="color:var(--dim);font-size:.82rem">${z.note}</td></tr>`;}).join('');
   el.innerHTML=summary+`<table><thead><tr><th>Niveau</th><th>Type</th><th>Dist.</th><th>Geste si le prix y réagit</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
+// ===== Gestion de position suivie + trailing stop (pas d'exécution broker) =====
+function getPos(){try{return JSON.parse(localStorage.getItem('drogo_position')||'null')}catch(e){return null}}
+function savePos(p){if(p)localStorage.setItem('drogo_position',JSON.stringify(p));else localStorage.removeItem('drogo_position');}
+function openPosition(){
+  const p=window._plan||{},r=window._read||{};
+  const live=(r.price)||(window._D&&window._D.price);
+  if(!live){showToast('Prix pas encore chargé','var(--bear)');return;}
+  let dir=p.bias==='LONG'?'LONG':p.bias==='SHORT'?'SHORT':(r.bias==='haussier'?'LONG':r.bias==='baissier'?'SHORT':null);
+  if(!dir){showToast('Pas de biais directionnel net — pas de position','var(--gold)');return;}
+  if(getPos()&&getPos().open){showToast('Une position est déjà ouverte','var(--gold)');return;}
+  const entry=live;
+  let sl=p.stop, target=p.target?p.target.p:null;
+  if(!sl||(dir==='LONG'&&sl>=entry)||(dir==='SHORT'&&sl<=entry)) sl=dir==='LONG'?entry-30:entry+30;
+  if(!target||(dir==='LONG'&&target<=entry)||(dir==='SHORT'&&target>=entry)) target=dir==='LONG'?entry+60:entry-60;
+  const trailPts=+(localStorage.getItem('drogo_trailPts')||25);
+  const be=localStorage.getItem('drogo_be')!=='0';
+  const trail=localStorage.getItem('drogo_trail')!=='0';
+  savePos({open:true,dir,entry,sl,slInit:sl,target,t0:Date.now(),peak:entry,trail,be,trailPts,stars:p.stars||null,zone:r.zone||''});
+  if(_soundOn)_bell();_notify('DROGO FI · Position '+dir,'Entrée '+num(entry)+' · SL '+num(sl)+' · TP '+num(target));
+  showToast('<b style="color:var(--ember-b)">▶ Position '+dir+'</b> @ '+num(entry),'var(--ember)');
+  renderPosition();
+}
+function closePosition(price,why){
+  const ps=getPos();if(!ps||!ps.open)return;
+  const pnl=(ps.dir==='LONG'?1:-1)*(price-ps.entry);
+  const risk=Math.abs(ps.entry-ps.slInit)||1;const R=pnl/risk;
+  const res=pnl>3?'w':pnl<-3?'l':'be';
+  // log dans le journal
+  const j=getJournal();j.unshift({t:Date.now(),price:ps.entry,bias:ps.dir==='LONG'?'haussier':'baissier',tech:'',gamma:'',zone:ps.zone||'',zd:0,setup:ps.dir,stars:ps.stars,entry:ps.entry,target:ps.target,stop:ps.slInit,r:res,exit:+price.toFixed(1),rmult:+R.toFixed(2)});
+  saveJournal(j.slice(0,50));renderJournal();
+  savePos(null);
+  if(_soundOn)_bell();
+  const col=res==='w'?'var(--bull)':res==='l'?'var(--bear)':'var(--dim)';
+  _notify('DROGO FI · Clôture '+why,(pnl>=0?'+':'')+pnl.toFixed(1)+' pts ('+(R>=0?'+':'')+R.toFixed(2)+'R)');
+  showToast('<b style="color:'+col+'">■ Clôturé '+why+'</b> '+(pnl>=0?'+':'')+Math.round(pnl)+' pts · '+(R>=0?'+':'')+R.toFixed(2)+'R','var(--ember)');
+  renderPosition();
+}
+function updateTrail(price){
+  const ps=getPos();if(!ps||!ps.open)return;
+  const long=ps.dir==='LONG';let moved=false;const oldSl=ps.sl;
+  ps.peak=long?Math.max(ps.peak,price):Math.min(ps.peak,price);
+  const risk=Math.abs(ps.entry-ps.slInit)||1;
+  // break-even auto à +1R
+  if(ps.be){const fav=long?price-ps.entry:ps.entry-price; if(fav>=risk){ps.sl=long?Math.max(ps.sl,ps.entry):Math.min(ps.sl,ps.entry);}}
+  // trailing par points fixes derrière le pic
+  if(ps.trail){const fav=long?price-ps.entry:ps.entry-price; if(fav>=ps.trailPts){const cand=long?ps.peak-ps.trailPts:ps.peak+ps.trailPts; ps.sl=long?Math.max(ps.sl,cand):Math.min(ps.sl,cand);}}
+  if((long&&ps.sl>oldSl)||(!long&&ps.sl<oldSl)){moved=true;}
+  savePos(ps);
+  // touches
+  if((long&&price<=ps.sl)||(!long&&price>=ps.sl)){closePosition(ps.sl, ps.sl===ps.slInit?'au stop':'au trailing stop');return;}
+  if((long&&price>=ps.target)||(!long&&price<=ps.target)){closePosition(ps.target,'au target ✓');return;}
+  if(moved){_notify('DROGO FI · Stop remonté',(long?'SL ↑ ':'SL ↓ ')+num(ps.sl)+' (verrouille '+((long?ps.sl-ps.entry:ps.entry-ps.sl)>=0?'+':'')+Math.round(long?ps.sl-ps.entry:ps.entry-ps.sl)+' pts)');}
+}
+function renderPosition(){
+  const panel=document.getElementById('posPanel'),el=document.getElementById('posBody');if(!panel||!el)return;
+  const ps=getPos();
+  if(!ps||!ps.open){panel.style.display='none';el.innerHTML='';return;}
+  panel.style.display='';
+  const live=(window._read&&window._read.price)||ps.entry;const long=ps.dir==='LONG';
+  const pnl=(long?1:-1)*(live-ps.entry);const risk=Math.abs(ps.entry-ps.slInit)||1;const R=pnl/risk;
+  const lockPts=long?ps.sl-ps.entry:ps.entry-ps.sl;const locked=lockPts>=0;
+  const dCol=ps.dir==='LONG'?'var(--bull)':'var(--bear)';const pCol=pnl>=0?'var(--bull)':'var(--bear)';
+  const cell=(lbl,val,col)=>`<div><div style="font-size:.66rem;color:var(--faint);text-transform:uppercase;letter-spacing:.07em">${lbl}</div><div class="mono" style="font-size:1.15rem;color:${col||'inherit'}">${val}</div></div>`;
+  el.innerHTML=`
+   <div style="display:flex;gap:1.4rem;flex-wrap:wrap;align-items:baseline;margin-bottom:1rem">
+     <span style="font-family:var(--mono);font-weight:700;color:${dCol};font-size:1.1rem">${ps.dir}</span>
+     ${cell('Entrée',num(ps.entry))}
+     ${cell('Prix',num(live),pCol)}
+     ${cell('P&L',(pnl>=0?'+':'')+pnl.toFixed(1)+' pts',pCol)}
+     ${cell('R',(R>=0?'+':'')+R.toFixed(2)+'R',pCol)}
+     ${cell('Stop'+(locked?' 🔒':''),num(ps.sl),locked?'var(--bull)':'var(--bear)')}
+     ${cell('Target',num(ps.target),'var(--blue)')}
+   </div>
+   <div style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:center;font-size:.8rem;color:var(--dim)">
+     <label style="display:flex;align-items:center;gap:.35rem">Trailing <input id="trailToggle" type="checkbox" ${ps.trail?'checked':''}></label>
+     <label style="display:flex;align-items:center;gap:.35rem">Distance <input id="trailPts" type="number" value="${ps.trailPts}" style="width:62px"> pts</label>
+     <label style="display:flex;align-items:center;gap:.35rem">Break-even auto à 1R <input id="beToggle" type="checkbox" ${ps.be?'checked':''}></label>
+     <button id="closePos" class="rbtn" style="margin-left:auto;border-color:var(--bear);color:var(--bear)">■ Clôturer maintenant</button>
+   </div>
+   <div style="margin-top:.7rem;font-size:.78rem;color:var(--faint)">Le stop ne recule jamais : il remonte derrière le pic (${ps.trailPts} pts) et passe à l'entrée dès +1R. Clôture auto + log au journal si le stop ou le target est touché.</div>`;
+  document.getElementById('closePos').onclick=()=>closePosition(live,'manuelle');
+  document.getElementById('trailToggle').onchange=e=>{const q=getPos();q.trail=e.target.checked;localStorage.setItem('drogo_trail',q.trail?'1':'0');savePos(q);};
+  document.getElementById('beToggle').onchange=e=>{const q=getPos();q.be=e.target.checked;localStorage.setItem('drogo_be',q.be?'1':'0');savePos(q);};
+  document.getElementById('trailPts').onchange=e=>{const q=getPos();q.trailPts=Math.max(2,+e.target.value||25);localStorage.setItem('drogo_trailPts',q.trailPts);savePos(q);};
+}
+(function(){const b=document.getElementById('takeBtn');if(b)b.addEventListener('click',openPosition);})();
+renderPosition();
 function renderFocus(){
   const fv=document.getElementById('focusView');if(!fv||fv.style.display==='none')return;
   const D=window._D,r=window._read,p=window._plan;if(!D||!r||!p)return;
