@@ -220,6 +220,19 @@ footer b{color:var(--dim)}
   </div>
 
   <div class="grid two">
+    <div class="card reveal" id="fpPanel" style="animation-delay:.14s">
+      <h2><span class="gl"></span>Footprint <span style="font-size:.64rem;color:var(--faint);font-weight:400">· tick-rule (proxy 2s)</span></h2>
+      <div class="desc">Pression acheteuse/vendeuse par niveau de prix, accumulée sur la séance. Réel au tick avec le relais cTrader.</div>
+      <div id="footprint" style="font-family:var(--mono);font-size:.74rem"></div>
+    </div>
+    <div class="card reveal" id="domPanel" style="animation-delay:.16s">
+      <h2><span class="gl"></span>DOM — carnet de niveaux</h2>
+      <div class="desc" id="domDesc">Liquidité de référence autour du prix. Profondeur réelle (tailles bid/ask) via le relais cTrader.</div>
+      <div id="dom" style="font-family:var(--mono);font-size:.76rem"></div>
+    </div>
+  </div>
+
+  <div class="grid two">
     <div class="card reveal" style="animation-delay:.1s">
       <h2><span class="gl"></span>Profil de volume — session</h2>
       <div class="desc">Volume par niveau de prix. <b style="color:var(--ember-b)">POC</b> = équilibre · <b style="color:var(--blue)">Value Area</b> = 70%.</div>
@@ -326,6 +339,8 @@ function render(D){
       b.innerHTML='GEX auto · options QQQ ('+(gx.generated||'').slice(0,10)+') · régime gamma <b style="color:'+(gx.regime==='+'?'var(--bull)':'var(--bear)')+'">'+(gx.regime==='+'?'positif → mean-reversion':'négatif → trend')+'</b>';}})();
   buildChart(D);buildVP(D);buildCVD(D);ladder(D);regime(D);buildTPO(D);computePlan(D);liveRead(D);renderRecap(D);
   if(typeof renderMomentum==='function')renderMomentum(D);
+  if(typeof renderFootprint==='function')renderFootprint(D);
+  if(typeof renderDOM==='function')renderDOM(D);
 }
 
 let _lastZone=null, _soundOn=localStorage.getItem('drogo_sound')==='1', _notifOn=localStorage.getItem('drogo_notif')==='1';
@@ -427,9 +442,15 @@ function liveTick(live,D){
         if(m.ny&&m.align){const id=dir+Math.round(now/20000);
           if(window._lastImp!==id){window._lastImp=id;_notify('DROGO FI · Poussée '+m.dir,'Momentum NY — entrée de continuation possible · stop 35 / cible 3R');if(_soundOn)_bell();}}}
     }}})();
+  // accumulation footprint tick-rule (proxy 2s)
+  (function(){window._fp=window._fp||{prev:null,lv:{}};const bs=5,b=Math.round(live.price/bs)*bs;
+    if(window._fp.prev!=null&&live.price!==window._fp.prev){const up=live.price>window._fp.prev;const o=window._fp.lv[b]||(window._fp.lv[b]={buy:0,sell:0});if(up)o.buy++;else o.sell++;}
+    window._fp.prev=live.price;})();
   if(typeof updateTrail==='function')updateTrail(live.price);
   if(typeof renderPosition==='function')renderPosition();
   if(typeof renderMomentum==='function')renderMomentum(D);
+  if(typeof renderFootprint==='function')renderFootprint(D);
+  if(typeof renderDOM==='function')renderDOM(D);
   if(!window._recapT||Date.now()-window._recapT>10000){window._recapT=Date.now();renderRecap(D);}
 }
 
@@ -883,6 +904,38 @@ function renderMomentum(D){
    <span style="font-size:.74rem;color:var(--faint);margin-left:.7rem">Suit la tendance, jamais à contre-sens. ~1,3 trade/jour en moyenne.</span>`;
   const b=document.getElementById('takeMom');
   if(b)b.onclick=()=>openPosition({dir:m.dir,entry:m.price,stop:m.stop,target:m.target,tag:'Momentum NY'});
+}
+// ===== Footprint tick-rule (proxy live) + DOM carnet de niveaux =====
+function renderFootprint(D){
+  const el=document.getElementById('footprint');if(!el)return;
+  const fp=window._fp;const price=(window._read&&window._read.price)||D.price;
+  if(!fp||!Object.keys(fp.lv).length){el.innerHTML='<div style="color:var(--faint)">Accumulation en cours — le footprint se construit à mesure que le prix bouge.</div>';return;}
+  const bs=5,cur=Math.round(price/bs)*bs,rows=[];
+  for(let k=8;k>=-8;k--){const b=cur+k*bs,o=fp.lv[b];rows.push({p:b,buy:o?o.buy:0,sell:o?o.sell:0});}
+  const mx=Math.max(1,...rows.map(r=>Math.max(r.buy,r.sell)));
+  let pocp=null,pocv=-1;for(const p in fp.lv){const t=fp.lv[p].buy+fp.lv[p].sell;if(t>pocv){pocv=t;pocp=+p;}}
+  const bar=(v,col,align)=>`<span style="display:inline-block;width:60px;text-align:${align};line-height:0"><span style="display:inline-block;height:9px;width:${Math.round(v/mx*56)}px;background:${col}"></span></span>`;
+  el.innerHTML=rows.map(r=>{const d=r.buy-r.sell,here=Math.abs(r.p-price)<bs/2,ispoc=r.p===pocp;
+    return `<div style="display:flex;align-items:center;gap:5px;${here?'background:oklch(34% 0.08 55/.35);':''}border-left:2px solid ${ispoc?'var(--ember)':'transparent'};padding:1px 2px">
+      <span style="color:var(--bear);width:26px;text-align:right">${r.sell||''}</span>${bar(r.sell,'rgba(232,97,90,.6)','right')}
+      <span style="width:58px;text-align:center;color:${here?'var(--ember-b)':'var(--dim)'}">${num(r.p)}</span>
+      ${bar(r.buy,'rgba(63,203,160,.6)','left')}<span style="color:var(--bull);width:26px">${r.buy||''}</span>
+      <span style="margin-left:auto;color:${d>=0?'var(--bull)':'var(--bear)'}">${d>=0?'+':''}${d}</span></div>`;}).join('')
+    +`<div style="margin-top:.4rem;color:var(--faint);font-size:.68rem"><span style="color:var(--bull)">▮</span> achats · <span style="color:var(--bear)">▮</span> ventes · <span style="color:var(--ember-b)">▮</span> POC delta · proxy tick (réel au tick avec cTrader).</div>`;
+}
+function renderDOM(D){
+  const el=document.getElementById('dom');if(!el)return;
+  const price=(window._read&&window._read.price)||D.price;
+  const f=+document.getElementById('flip').value,cw=+document.getElementById('cw').value,pw=+document.getElementById('pw').value;
+  const d1=D.candlesTF&&D.candlesTF['1d'];const pv=d1&&d1.length>=2?d1[d1.length-2]:null;
+  let L=[{p:D.session.vah,n:'VAH'},{p:D.session.val,n:'VAL'},{p:D.session.poc,n:'POC'},{p:D.vwap,n:'VWAP'},{p:f,n:'Gamma flip'},{p:cw,n:'Call wall'},{p:pw,n:'Put wall'},{p:D.week.poc,n:'POC sem'}]
+   .concat(vwapBands(D).map(b=>({p:b.p,n:'VWAP '+b.n}))).concat(pv?[{p:pv.h,n:'PDH'},{p:pv.l,n:'PDL'}]:[]).filter(z=>z.p>0);
+  const ask=L.filter(z=>z.p>price).sort((a,b)=>a.p-b.p).slice(0,6).reverse();
+  const bid=L.filter(z=>z.p<=price).sort((a,b)=>b.p-a.p).slice(0,6);
+  const row=(z,side)=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:1.5px 5px;border-radius:3px;background:${side==='ask'?'oklch(40% 0.1 26/.10)':'oklch(40% 0.08 168/.10)'}"><span style="color:${side==='ask'?'var(--bear)':'var(--bull)'}">${num(z.p)}</span><span style="color:var(--dim);font-size:.7rem">${z.n}</span><span style="color:var(--faint);font-size:.7rem">${Math.round(Math.abs(z.p-price))}p</span></div>`;
+  el.innerHTML=ask.map(z=>row(z,'ask')).join('')
+    +`<div style="display:flex;justify-content:space-between;padding:3px 5px;margin:3px 0;background:oklch(36% 0.09 55/.5);border-radius:4px;color:var(--ember-b);font-weight:700"><span>${num(price)}</span><span>● PRIX</span><span></span></div>`
+    +bid.map(z=>row(z,'bid')).join('');
 }
 (function(){const b=document.getElementById('takeBtn');if(b)b.addEventListener('click',()=>openPosition());})();
 (function(){const ri=document.getElementById('riskPts');if(!ri)return;ri.value=localStorage.getItem('drogo_riskPts')||18;
