@@ -502,9 +502,11 @@ function regime(D){
 function buildVP(D){
   if(charts.vp)charts.vp.destroy();
   const rev=D.session.bins.slice().reverse();
+  const maxV=Math.max(1,...rev.map(b=>b.v));
+  const heat=b=>{const t=b.v/maxV;if(b.poc)return C.ember;if(b.va)return`rgba(90,160,232,${(0.28+0.60*t).toFixed(2)})`;return`rgba(232,138,78,${(0.10+0.52*t).toFixed(2)})`;};
   charts.vp=new Chart(document.getElementById('vp'),{type:'bar',
     data:{labels:rev.map(b=>num(b.p)),datasets:[{data:rev.map(b=>b.v),
-      backgroundColor:rev.map(b=>b.poc?C.ember:b.va?'#5AA0E8':'rgba(150,144,128,.32)'),borderWidth:0,barPercentage:.97,categoryPercentage:1}]},
+      backgroundColor:rev.map(heat),borderWidth:0,barPercentage:.97,categoryPercentage:1}]},
     options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,animation:{duration:500},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'Vol '+c.raw.toLocaleString('fr-FR')}}},
       scales:{x:{ticks:{color:C.dim,font:{size:10},callback:v=>v/1000+'k'},grid:{color:C.grid}},
@@ -588,9 +590,19 @@ function renderJournal(){const el=document.getElementById('journal');if(!el)retu
   const wins=j.filter(x=>x.r==='w').length, losses=j.filter(x=>x.r==='l').length, wr=(wins+losses)?Math.round(wins/(wins+losses)*100):null;
   const bz={};j.forEach(x=>{if(x.r==='w'||x.r==='l'){(bz[x.zone]=bz[x.zone]||{w:0,t:0}),bz[x.zone].t++,x.r==='w'&&bz[x.zone].w++;}});
   const zs=Object.entries(bz).filter(([,o])=>o.t>=2).sort((a,b)=>b[1].w/b[1].t-a[1].w/a[1].t).map(([z,o])=>`${z} <b style="color:${o.w/o.t>=.5?'var(--bull)':'var(--bear)'}">${Math.round(o.w/o.t*100)}%</b>(${o.t})`).join(' · ');
-  const stats=`<div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-bottom:.9rem;font-size:.84rem;align-items:baseline"><span style="color:var(--dim)">${j.length} setups</span>${wr!=null?`<span>Winrate <b style="color:${wr>=50?'var(--bull)':'var(--bear)'}">${wr}%</b> <span style="color:var(--faint)">(${wins}W / ${losses}L)</span></span>`:'<span style="color:var(--faint)">note les résultats →</span>'}${zs?`<span style="color:var(--faint)">par zone : ${zs}</span>`:''}</div>`;
+  const stats=`<div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-bottom:.5rem;font-size:.84rem;align-items:baseline"><span style="color:var(--dim)">${j.length} setups</span>${wr!=null?`<span>Winrate <b style="color:${wr>=50?'var(--bull)':'var(--bear)'}">${wr}%</b> <span style="color:var(--faint)">(${wins}W / ${losses}L)</span></span>`:'<span style="color:var(--faint)">note les résultats →</span>'}${zs?`<span style="color:var(--faint)">par zone : ${zs}</span>`:''}</div>`;
+  // Edge par qualité d'étoiles + R:R planifié moyen + espérance théorique (valide la règle « seulement 5★ »)
+  const dec=j.filter(x=>x.r==='w'||x.r==='l');
+  const byStar=q=>{const f=dec.filter(x=>x.stars!=null&&q(x.stars));if(!f.length)return null;return{n:f.length,wr:Math.round(f.filter(x=>x.r==='w').length/f.length*100)};};
+  const s5=byStar(s=>s>=5),s4=byStar(s=>s===4),slo=byStar(s=>s<4);
+  const star=(lbl,o)=>o?`<span style="color:var(--faint)">${lbl} <b style="color:${o.wr>=50?'var(--bull)':'var(--bear)'}">${o.wr}%</b>(${o.n})</span>`:'';
+  const rrs=j.map(x=>(x.entry&&x.target&&x.stop&&Math.abs(x.entry-x.stop)>0)?Math.abs(x.target-x.entry)/Math.abs(x.entry-x.stop):null).filter(v=>v!=null);
+  const avgRR=rrs.length?rrs.reduce((a,b)=>a+b,0)/rrs.length:null;
+  const wf=(wins+losses)?wins/(wins+losses):null,exp=(wf!=null&&avgRR!=null)?wf*avgRR-(1-wf):null;
+  const edgeBits=[star('5★',s5),star('4★',s4),star('&lt;4★',slo),avgRR!=null?`<span style="color:var(--faint)">R:R moy <b style="color:var(--blue)">${avgRR.toFixed(1)}</b></span>`:'',exp!=null?`<span style="color:var(--faint)">Espérance <b style="color:${exp>=0?'var(--bull)':'var(--bear)'}">${exp>=0?'+':''}${exp.toFixed(2)}R</b></span>`:''].filter(Boolean);
+  const edge=edgeBits.length?`<div style="display:flex;gap:1.1rem;flex-wrap:wrap;margin-bottom:.9rem;font-size:.8rem;align-items:baseline;padding-top:.4rem;border-top:1px solid var(--grid)">${edgeBits.join('')}</div>`:'';
   const rb=(i,x,r,lbl,col)=>`<span class="jres" data-i="${i}" data-r="${r}" style="cursor:pointer;padding:1px 6px;border-radius:4px;font-size:.72rem;margin-right:2px;${x.r===r?'background:'+col+';color:#111;font-weight:700':'color:'+col+';border:1px solid '+col}">${lbl}</span>`;
-  el.innerHTML=stats+'<table><thead><tr><th>Heure</th><th>Prix</th><th>Biais</th><th>Tech</th><th>Gamma</th><th>Zone</th><th>Entrée</th><th>Stop</th><th>Target</th><th>R:R</th><th>Résultat</th><th></th></tr></thead><tbody>'+
+  el.innerHTML=stats+edge+'<table><thead><tr><th>Heure</th><th>Prix</th><th>Biais</th><th>Tech</th><th>Gamma</th><th>Zone</th><th>Entrée</th><th>Stop</th><th>Target</th><th>R:R</th><th>Résultat</th><th></th></tr></thead><tbody>'+
     j.map((x,i)=>`<tr><td>${new Date(x.t).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td class="mono">${num(x.price)}</td><td style="color:${x.bias==='haussier'?'var(--bull)':x.bias==='baissier'?'var(--bear)':'var(--dim)'}">${x.bias}</td><td class="mono">${x.tech}</td><td class="mono">${x.gamma}</td><td>${x.zone} (${x.zd}p)</td><td class="mono" style="color:var(--ember-b)">${x.entry?num(x.entry):'—'}</td><td class="mono" style="color:var(--bear)">${x.stop?num(x.stop):'—'}</td><td class="mono" style="color:var(--blue)">${x.target?num(x.target):'—'}</td><td class="mono">${(x.entry&&x.target&&x.stop&&Math.abs(x.entry-x.stop)>0)?(Math.abs(x.target-x.entry)/Math.abs(x.entry-x.stop)).toFixed(1):'—'}</td><td style="white-space:nowrap">${rb(i,x,'w','W','var(--bull)')}${rb(i,x,'l','L','var(--bear)')}${rb(i,x,'be','BE','var(--dim)')}</td><td style="text-align:right"><span data-i="${i}" class="jdel" style="cursor:pointer;color:var(--faint);padding:0 4px">✕</span></td></tr>`).join('')+'</tbody></table>';
   el.querySelectorAll('.jres').forEach(b=>b.addEventListener('click',()=>setResult(+b.dataset.i,b.dataset.r)));
   el.querySelectorAll('.jdel').forEach(b=>b.addEventListener('click',()=>{const a=getJournal();a.splice(+b.dataset.i,1);saveJournal(a);renderJournal();}));}
