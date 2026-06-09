@@ -155,11 +155,20 @@ footer b{color:var(--dim)}
     <div class="status">
       <div id="liveBadge" class="live delayed"><span class="led"></span><span id="liveTxt">connexion…</span></div>
       <div class="clock" id="clock">--:--:--</div>
+      <button class="rbtn" id="focusBtn" aria-label="Mode focus" title="Mode focus exécution"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>Focus</button>
       <button class="rbtn" id="sound" aria-label="Alertes son" title="Son des alertes de zone"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg><span id="soundLbl">Son</span></button>
       <button class="rbtn" id="refresh" aria-label="Rafraîchir"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>Refresh</button>
     </div>
   </div>
   <div id="toast" style="position:fixed;top:18px;right:18px;z-index:50;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
+  <div id="focusView" style="position:fixed;inset:0;z-index:60;background:oklch(11% 0.014 45);display:none;flex-direction:column;padding:clamp(1rem,4vw,3rem)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="wordmark" style="font-size:1.25rem">DROGO<span> FI</span></div>
+      <button class="rbtn" id="focusClose"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>Quitter</button>
+    </div>
+    <div id="focusBody" style="margin:auto 0;width:min(100%,680px);margin-left:auto;margin-right:auto"></div>
+    <div></div>
+  </div>
   <hr class="hairline">
 
   <div class="regime reveal" id="regime" style="animation-delay:.05s">
@@ -379,6 +388,8 @@ function computePlan(D){
   if(bias==='LONG'){entry=nearBelow;target=above.slice().reverse().find(z=>/POC|VAH/.test(z.n))||nearAbove;}
   else if(bias==='SHORT'){entry=nearAbove;target=below.find(z=>/POC|VAL/.test(z.n))||nearBelow;}
   const dir=bias==='LONG'?'acheteur':bias==='SHORT'?'vendeur':'—';
+  window._plan={bias,stars,entry,target,actionable,gammaPos,dir,noTrade,contradiction};
+  if(typeof renderFocus==='function')renderFocus();
   let steps;
   if(contradiction){
     steps=[['✕','Conflit',`Tech (${techDir>0?'long':'short'}) et fonda (${fonda}) <b style="color:var(--gold)">se contredisent</b> → <b>PAS DE TRADE</b>. On ne prend que l'alignement.`]];
@@ -554,6 +565,37 @@ function renderJournal(){const el=document.getElementById('journal');if(!el)retu
   el.querySelectorAll('.jdel').forEach(b=>b.addEventListener('click',()=>{const a=getJournal();a.splice(+b.dataset.i,1);saveJournal(a);renderJournal();}));}
 document.getElementById('logBtn').addEventListener('click',logSetup);
 renderJournal();
+function renderFocus(){
+  const fv=document.getElementById('focusView');if(!fv||fv.style.display==='none')return;
+  const D=window._D,r=window._read,p=window._plan;if(!D||!r||!p)return;
+  const bc=p.bias==='LONG'?'var(--bull)':p.bias==='SHORT'?'var(--bear)':'var(--gold)';
+  const hue=p.bias==='LONG'?168:p.bias==='SHORT'?26:85;
+  const stars=p.noTrade?'☆☆☆☆☆':('★'.repeat(p.stars)+'☆'.repeat(5-p.stars));
+  const chgCol=D.change>=0?'var(--bull)':'var(--bear)';
+  let plan;
+  if(p.contradiction)plan=`<div style="text-align:center;color:var(--gold);font-size:1.15rem"><b>PAS DE TRADE</b> — tech et fonda se contredisent. On attend l'alignement.</div>`;
+  else if(!p.actionable)plan=`<div style="text-align:center;color:var(--dim);font-size:1.1rem">Setup ${p.stars}★ — qualité insuffisante. On attend un alignement net <b>4-5★</b>.</div>`;
+  else plan=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;font-family:var(--mono);text-align:center">
+    <div><div style="font-size:.68rem;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">Entrée</div><div style="font-size:1.5rem;color:var(--ember-b)">${p.entry?num(p.entry.p):'—'}</div><div style="font-size:.74rem;color:var(--dim)">${p.entry?p.entry.n:''}</div></div>
+    <div><div style="font-size:.68rem;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">Target</div><div style="font-size:1.5rem;color:var(--blue)">${p.target?num(p.target.p):'—'}</div><div style="font-size:.74rem;color:var(--dim)">${p.target?p.target.n:''}</div></div>
+    <div><div style="font-size:.68rem;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">Stop</div><div style="font-size:1.5rem;color:var(--bear)">dynamique</div><div style="font-size:.74rem;color:var(--dim)">time-in-zone / structure</div></div></div>`;
+  document.getElementById('focusBody').innerHTML=`
+    <div style="text-align:center;margin-bottom:1.8rem">
+      <div style="font-family:var(--mono);font-size:clamp(3.2rem,13vw,6.5rem);font-weight:700;line-height:1;letter-spacing:-.02em">${num(D.price)}</div>
+      <div style="font-family:var(--mono);color:${chgCol};font-size:1.05rem;margin-top:.4rem">${D.change>=0?'+':''}${Math.round(D.change)} (${D.change_pct>=0?'+':''}${D.change_pct}%) · ${D.contract||''}</div>
+    </div>
+    <div style="display:flex;gap:.9rem;align-items:center;justify-content:center;flex-wrap:wrap;margin-bottom:1.5rem">
+      <span class="bias" style="color:${bc};background:oklch(28% 0.07 ${hue}/.4);font-size:1.25rem">${p.bias}</span>
+      <span style="font-family:var(--mono);color:var(--gold);font-size:1.3rem;letter-spacing:4px">${stars}</span>
+      <span style="font-family:var(--mono);color:${p.gammaPos?'var(--bull)':'var(--bear)'};border:1px solid var(--bd2);padding:.3rem .75rem;border-radius:99px;font-size:.82rem">Gamma ${p.gammaPos?'+':'−'}</span>
+    </div>
+    <div style="text-align:center;font-size:1.12rem;line-height:1.6;max-width:580px;margin:0 auto 1.7rem">${r.zd<=8?'<b style="color:var(--ember-b)">● SUR '+r.zone+'</b> — ':''}${r.loc}</div>
+    ${plan}`;
+}
+function toggleFocus(open){const fv=document.getElementById('focusView');fv.style.display=open?'flex':'none';document.getElementById('focusBtn').style.color=open?'var(--ember-b)':'';if(open)renderFocus();}
+document.getElementById('focusBtn').addEventListener('click',()=>toggleFocus(true));
+document.getElementById('focusClose').addEventListener('click',()=>toggleFocus(false));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')toggleFocus(false);});
 load(false);
 setInterval(()=>load(false),2000);
 
