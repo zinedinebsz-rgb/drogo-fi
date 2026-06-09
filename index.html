@@ -253,6 +253,12 @@ footer b{color:var(--dim)}
     <div class="desc" style="margin-top:var(--s5);margin-bottom:0">Contexte annuel — haut <span id="yh" class="mono"></span> · bas <span id="yl" class="mono"></span> · VWAP annuel <span id="yv" class="mono"></span> <span id="ybias"></span></div>
   </div>
 
+  <div class="card reveal" id="recapcard" style="animation-delay:.26s;margin-bottom:var(--s8)">
+    <h2><span class="gl"></span>Recap &amp; niveaux de demain</h2>
+    <div class="desc">Bilan de la journée + carte des niveaux clés à surveiller à la prochaine séance, classés par prix avec le geste associé.</div>
+    <div id="recap"></div>
+  </div>
+
   <div class="card reveal" style="animation-delay:.28s;margin-bottom:var(--s8)">
     <h2><span class="gl"></span>Journal de setups<button id="logBtn" class="rbtn" style="margin-left:auto"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>Logger ce moment</button></h2>
     <div class="desc">Capture le contexte (prix, biais, zone, régime) en 1 clic pour mesurer ton edge dans le temps.</div>
@@ -260,7 +266,7 @@ footer b{color:var(--dim)}
   </div>
 
   <footer>
-    <b>DROGO FI</b> — données NQ=F réelles via flux serveur, rafraîchies automatiquement (~délai 10-15 min en palier gratuit). GEX saisi depuis TradingView · CVD = proxy tick-rule. Le moteur est identique quel que soit le feed ; seule la source se branche derrière.<br>
+    <b>DROGO FI</b> — prix NQ réel via CNBC (~2s), structure order-flow recalculée chaque jour à 2h (Yahoo), GEX auto depuis les options QQQ, calendrier macro via TradingView. CVD = proxy tick-rule (vrai footprint CME = upgrade Databento). Le moteur est identique quel que soit le feed ; seule la source se branche derrière.<br>
     Outil d'analyse — <b>pas un conseil d'investissement</b>. Décisions de trade et gestion du risque restent les tiennes.
   </footer>
 </div>
@@ -306,7 +312,7 @@ function render(D){
   (function(){const host=document.querySelector('.gexin');if(!host)return;let b=document.getElementById('gexsrc');
     if(gx.flip||gx.cw){if(!b){b=document.createElement('div');b.id='gexsrc';b.style.cssText='font-size:.72rem;color:var(--faint);margin-top:.5rem;line-height:1.5';host.parentNode.insertBefore(b,host.nextSibling);}
       b.innerHTML='GEX auto · options QQQ ('+(gx.generated||'').slice(0,10)+') · régime gamma <b style="color:'+(gx.regime==='+'?'var(--bull)':'var(--bear)')+'">'+(gx.regime==='+'?'positif → mean-reversion':'négatif → trend')+'</b>';}})();
-  buildChart(D);buildVP(D);buildCVD(D);ladder(D);regime(D);buildTPO(D);computePlan(D);liveRead(D);
+  buildChart(D);buildVP(D);buildCVD(D);ladder(D);regime(D);buildTPO(D);computePlan(D);liveRead(D);renderRecap(D);
 }
 
 let _lastZone=null, _soundOn=localStorage.getItem('drogo_sound')==='1', _notifOn=localStorage.getItem('drogo_notif')==='1';
@@ -372,6 +378,7 @@ function liveTick(live,D){
   if(tv.cs&&_lastBar){_lastBar.close=live.price;_lastBar.high=Math.max(_lastBar.high,live.price);_lastBar.low=Math.min(_lastBar.low,live.price);
     tv.cs.update({time:_lastBar.time,open:_lastBar.open,high:_lastBar.high,low:_lastBar.low,close:_lastBar.close});}
   liveRead(D);computePlan(D);ladder(D);regime(D);
+  if(!window._recapT||Date.now()-window._recapT>10000){window._recapT=Date.now();renderRecap(D);}
 }
 
 function buildTPO(D){
@@ -637,6 +644,35 @@ function renderJournal(){const el=document.getElementById('journal');if(!el)retu
   el.querySelectorAll('.jdel').forEach(b=>b.addEventListener('click',()=>{const a=getJournal();a.splice(+b.dataset.i,1);saveJournal(a);renderJournal();}));}
 document.getElementById('logBtn').addEventListener('click',logSetup);
 renderJournal();
+function renderRecap(D){
+  const el=document.getElementById('recap');if(!el)return;
+  const s=D.session,gx=D.gex||{},p=D.price;
+  const d1=(D.candlesTF&&D.candlesTF['1d'])||[];const prev=d1.length>=2?d1[d1.length-2]:null;
+  const f=+document.getElementById('flip').value, cw=+document.getElementById('cw').value, pw=+document.getElementById('pw').value;
+  let L=[
+   {n:'Call wall (GEX)',p:cw,c:C.ember2,note:'plafond gamma : fade des mèches, prises de profit côté long'},
+   {n:'VAH jour',p:s.vah,c:C.va,note:'haut de valeur : rejet = short rapide, cassure tenue = expansion'},
+   {n:'POC jour',p:s.poc,c:C.blue,note:'aimant / équilibre : on attend la cassure nette, pas de trade au milieu'},
+   {n:'VWAP',p:D.vwap,c:C.dim,note:'moyenne pondérée : support/résistance dynamique'},
+   {n:'Gamma flip',p:f,c:C.ember,note:'bascule de régime : au-dessus = range, en-dessous = trend'},
+   {n:'VAL jour',p:s.val,c:C.va,note:'bas de valeur : soutien = long, perte = continuation baissière'},
+   {n:'Put wall (GEX)',p:pw,c:C.ember2,note:'plancher gamma : rebond probable, couverture short'},
+   {n:'POC semaine',p:D.week.poc,c:C.blue,note:'référence hebdomadaire'},
+   {n:'POC mois',p:D.month.poc,c:C.blue,note:'référence mensuelle'}
+  ];
+  if(prev){L.push({n:'Haut veille (PDH)',p:prev.h,c:C.dim,note:'cassure = force acheteuse, rejet = retour dans le range'});
+    L.push({n:'Bas veille (PDL)',p:prev.l,c:C.dim,note:'perte = faiblesse, soutien = rebond'});
+    L.push({n:'Clôture veille',p:prev.c,c:C.dim,note:'pivot psychologique / référence de gap'});}
+  L=L.filter(z=>z.p>0).sort((a,b)=>b.p-a.p);
+  const loc=p>s.vah?'au-dessus de la valeur (acceptation haussière)':p<s.val?'sous la valeur (acceptation baissière)':'dans la Value Area (équilibre)';
+  const reg=gx.regime==='+'?'gamma positif → range / mean-reversion autour du flip et du POC':gx.regime==='-'?'gamma négatif → trend, mouvements amplifiés, on suit le momentum':'régime gamma neutre';
+  const g=newsGate(D);const news=g.next?`Prochaine news macro : <b>${g.next.title}</b> (${new Date(g.next.t*1000).toLocaleString('fr-FR',{weekday:'short',hour:'2-digit',minute:'2-digit'})}${g.next.tier1?' — majeure, fenêtre no-trade':''}).`:'Pas de news macro majeure programmée d\'ici la fin de semaine.';
+  const rng=(D.high&&D.low)?Math.round(D.high-D.low):null;
+  const summary=`<div style="font-size:.9rem;line-height:1.65;margin-bottom:1rem">Séance : NQ <b class="mono">${num(p)}</b>${rng?' · range '+rng+' pts':''} · prix <b>${loc}</b>.<br>Régime : <b style="color:${gx.regime==='+'?'var(--bull)':gx.regime==='-'?'var(--bear)':'var(--dim)'}">${reg}</b>.<br>Demain : ${news}</div>`;
+  const rows=L.map(z=>{const above=z.p>p;const dist=Math.round(Math.abs(z.p-p));
+    return `<tr><td class="mono" style="color:${z.c}">${num(z.p)}</td><td>${z.n}</td><td class="mono" style="color:var(--faint)">${above?'+':'−'}${dist}p</td><td style="color:var(--dim);font-size:.82rem">${z.note}</td></tr>`;}).join('');
+  el.innerHTML=summary+`<table><thead><tr><th>Niveau</th><th>Type</th><th>Dist.</th><th>Geste si le prix y réagit</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
 function renderFocus(){
   const fv=document.getElementById('focusView');if(!fv||fv.style.display==='none')return;
   const D=window._D,r=window._read,p=window._plan;if(!D||!r||!p)return;
