@@ -201,6 +201,7 @@ footer b{color:var(--dim)}
   <div class="card reveal" id="plancard" style="animation-delay:.12s;margin-bottom:var(--s8)">
     <h2><span class="gl"></span>Plan de séance — marche à suivre<button id="takeBtn" class="rbtn" style="margin-left:auto"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>Prendre la position</button></h2>
     <div class="desc">Biais (tech + fonda) → entrée sur <b style="color:var(--ember-b)">retournement de delta</b> dans une zone → target <b style="color:var(--blue)">zone de valeur</b>. Le bouton ouvre une position <b>suivie</b> (gestion + trailing stop) — l'exécution réelle reste sur ta plateforme.</div>
+    <div style="margin:.2rem 0 .7rem;font-size:.82rem;color:var(--dim);display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">Profil <b style="color:var(--ember-b)">M1</b> · risque par trade <input id="riskPts" type="number" value="18" style="width:60px"> pts · cible <b>R:R 4 → 10</b> sélectionnée automatiquement sur la structure.</div>
     <div class="plan">
       <div id="planLeft"></div>
       <div id="planRight"></div>
@@ -459,17 +460,31 @@ function computePlan(D){
   const actionable = stars>=4;
   const bc=bias==='LONG'?'var(--bull)':bias==='SHORT'?'var(--bear)':'var(--gold)';
   const bg=bias==='LONG'?'oklch(30% 0.08 168)':bias==='SHORT'?'oklch(32% 0.12 26)':'oklch(32% 0.1 85)';
+  const cw2=+document.getElementById('cw').value,pw2=+document.getElementById('pw').value;
+  const _d1=(D.candlesTF&&D.candlesTF['1d'])||[];const _pv=_d1.length>=2?_d1[_d1.length-2]:null;
   const lv=[{p:D.session.poc,n:'POC jour'},{p:D.session.vah,n:'VAH jour'},{p:D.session.val,n:'VAL jour'},
-    {p:D.week.poc,n:'POC sem'},{p:D.month.poc,n:'POC mois'},{p:D.vwap,n:'VWAP'},{p:f,n:'Gamma flip'}]
+    {p:D.week.poc,n:'POC sem'},{p:D.month.poc,n:'POC mois'},{p:D.vwap,n:'VWAP'},{p:f,n:'Gamma flip'},
+    {p:cw2,n:'Call wall'},{p:pw2,n:'Put wall'}]
+    .concat(vwapBands(D).map(b=>({p:b.p,n:'VWAP '+b.n})))
+    .concat(_pv?[{p:_pv.h,n:'Haut veille'},{p:_pv.l,n:'Bas veille'},{p:_pv.c,n:'Clôture veille'}]:[])
     .filter(z=>z.p>0).sort((a,b)=>b.p-a.p);
   const above=lv.filter(z=>z.p>D.price), below=lv.filter(z=>z.p<=D.price);
   const nearAbove=above[above.length-1], nearBelow=below[0];
-  let entry,target;
-  if(bias==='LONG'){entry=nearBelow;target=above.slice().reverse().find(z=>/POC|VAH/.test(z.n))||nearAbove;}
-  else if(bias==='SHORT'){entry=nearAbove;target=below.find(z=>/POC|VAL/.test(z.n))||nearBelow;}
+  // Profil M1 : stop serré (configurable) + target qui vise R:R 4 à 10
+  const riskPts=Math.max(4,+(localStorage.getItem('drogo_riskPts')||18));
   const dir=bias==='LONG'?'acheteur':bias==='SHORT'?'vendeur':'—';
-  const stop = bias==='LONG'?D.session.val:bias==='SHORT'?D.session.vah:null;
-  window._plan={bias,stars,entry,target,stop,actionable,gammaPos,dir,noTrade,contradiction,newsBlock,news:ng.active||null};
+  let entry=null,target=null,stop=null,rr=null;
+  if(bias==='LONG'||bias==='SHORT'){
+    const long=bias==='LONG';
+    entry= long?(nearBelow||{p:D.price,n:'prix actuel'}):(nearAbove||{p:D.price,n:'prix actuel'});
+    const e=entry.p;
+    stop= long? +(e-riskPts).toFixed(1) : +(e+riskPts).toFixed(1);
+    const cands=(long?above:below).map(z=>({p:z.p,n:z.n,rr:Math.abs(z.p-e)/riskPts})).sort((a,b)=>a.rr-b.rr);
+    const q=cands.find(z=>z.rr>=4&&z.rr<=10);
+    target= q?{p:q.p,n:q.n}:{p:+(long?e+4*riskPts:e-4*riskPts).toFixed(1),n:'objectif 4R'};
+    rr=+(Math.abs(target.p-e)/riskPts).toFixed(1);
+  }
+  window._plan={bias,stars,entry,target,stop,rr,riskPts,actionable,gammaPos,dir,noTrade,contradiction,newsBlock,news:ng.active||null};
   // Alerte proactive : nouveau setup actionnable 4-5★ (ne rate pas le moment, même onglet en fond)
   try{const zone=window._read?window._read.zone:'';
     const sigId=(actionable&&stars>=4&&!noTrade)?(bias+'|'+stars+'|'+zone):'none';
@@ -813,6 +828,8 @@ function renderPosition(){
   document.getElementById('trailPts').onchange=e=>{const q=getPos();q.trailPts=Math.max(2,+e.target.value||25);localStorage.setItem('drogo_trailPts',q.trailPts);savePos(q);};
 }
 (function(){const b=document.getElementById('takeBtn');if(b)b.addEventListener('click',openPosition);})();
+(function(){const ri=document.getElementById('riskPts');if(!ri)return;ri.value=localStorage.getItem('drogo_riskPts')||18;
+  ri.addEventListener('input',()=>{const v=Math.max(4,+ri.value||18);localStorage.setItem('drogo_riskPts',v);if(window._D){computePlan(window._D);if(typeof ladder==='function')ladder(window._D);if(typeof renderRecap==='function')renderRecap(window._D);}});})();
 renderPosition();
 function renderFocus(){
   const fv=document.getElementById('focusView');if(!fv||fv.style.display==='none')return;
@@ -827,8 +844,8 @@ function renderFocus(){
   else if(!p.actionable)plan=`<div style="text-align:center;color:var(--dim);font-size:1.1rem">Setup ${p.stars}★ — qualité insuffisante. On attend un alignement net <b>4-5★</b>.</div>`;
   else plan=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;font-family:var(--mono);text-align:center">
     <div><div style="font-size:.68rem;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">Entrée</div><div style="font-size:1.5rem;color:var(--ember-b)">${p.entry?num(p.entry.p):'—'}</div><div style="font-size:.74rem;color:var(--dim)">${p.entry?p.entry.n:''}</div></div>
-    <div><div style="font-size:.68rem;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">Target</div><div style="font-size:1.5rem;color:var(--blue)">${p.target?num(p.target.p):'—'}</div><div style="font-size:.74rem;color:var(--dim)">${p.target?p.target.n:''}</div></div>
-    <div><div style="font-size:.68rem;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">Stop</div><div style="font-size:1.5rem;color:var(--bear)">dynamique</div><div style="font-size:.74rem;color:var(--dim)">time-in-zone / structure</div></div></div>`;
+    <div><div style="font-size:.68rem;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">Target · ${p.rr?p.rr+'R':''}</div><div style="font-size:1.5rem;color:var(--blue)">${p.target?num(p.target.p):'—'}</div><div style="font-size:.74rem;color:var(--dim)">${p.target?p.target.n:''}</div></div>
+    <div><div style="font-size:.68rem;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">Stop</div><div style="font-size:1.5rem;color:var(--bear)">${p.stop?num(p.stop):'—'}</div><div style="font-size:.74rem;color:var(--dim)">M1 · risque ${p.riskPts||''} pts</div></div></div>`;
   document.getElementById('focusBody').innerHTML=`
     <div style="text-align:center;margin-bottom:1.8rem">
       <div style="font-family:var(--mono);font-size:clamp(3.2rem,13vw,6.5rem);font-weight:700;line-height:1;letter-spacing:-.02em">${num(D.price)}</div>
