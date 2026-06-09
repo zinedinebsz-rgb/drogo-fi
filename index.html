@@ -14993,22 +14993,18 @@ function buildTPO(D){
 
 function computePlan(D){
   const f=+document.getElementById('flip').value;
-  let sc=0; const reasons=[];
-  const add=(c,l)=>{sc+=c?1:-1;reasons.push((c?'+ ':'− ')+l)};
-  add(D.price>D.vwap,'prix &gt; VWAP session');
-  add(D.price>D.session.poc,'prix &gt; POC jour');
-  add(D.price>D.week.poc,'prix &gt; POC semaine');
-  add(D.price>D.year.vwap,'prix &gt; VWAP annuel (macro)');
-  add(D.cvd>0,'CVD positif (flux acheteur)');
+  const crit=[D.price>D.vwap, D.price>D.session.poc, D.price>D.week.poc, D.cvd>0];
+  const N=crit.length, sc=crit.reduce((a,c)=>a+(c?1:-1),0);
   const fonda=localStorage.getItem('drogo_fonda')||'neutre';
   const fS=fonda==='risk-on'?1:fonda==='risk-off'?-1:0;
   const techDir=sc>0?1:sc<0?-1:0;
-  const pos=(sc+5)/2, agree=techDir>0?pos:5-pos;
+  const posN=crit.filter(Boolean).length, agree=techDir>0?posN:N-posN;
+  const gammaPos=D.price>f;
   const contradiction = fS!==0 && techDir!==0 && Math.sign(fS)!==Math.sign(techDir);
   const noTrade = contradiction || techDir===0;
   const bias = contradiction?'PAS DE TRADE':(techDir===0?'NEUTRE':(techDir>0?'LONG':'SHORT'));
   let stars=0;
-  if(!noTrade){stars=2; if(fS!==0&&Math.sign(fS)===Math.sign(techDir))stars++; if(agree>=4)stars++; if(agree===5)stars++; if(fS===0)stars=Math.min(stars,3); stars=Math.min(5,stars);}
+  if(!noTrade){stars=2; if(fS!==0&&Math.sign(fS)===Math.sign(techDir))stars++; if(agree>=Math.ceil(N*0.75))stars++; if(agree===N)stars++; if(fS===0)stars=Math.min(stars,3); stars=Math.min(5,stars);}
   const actionable = stars>=4;
   const bc=bias==='LONG'?'var(--bull)':bias==='SHORT'?'var(--bear)':'var(--gold)';
   const bg=bias==='LONG'?'oklch(30% 0.08 168)':bias==='SHORT'?'oklch(32% 0.12 26)':'oklch(32% 0.1 85)';
@@ -15027,13 +15023,21 @@ function computePlan(D){
   } else if(!actionable){
     steps=[['…','Patience',`Setup ${stars}★ — qualité insuffisante. On attend un <b>alignement net tech + fonda (4-5★)</b>. Pas de trade médiocre.`]];
   } else {
-    steps=[
-      ['1','Biais',`<b style="color:${bc}">${bias}</b> — tech ${agree}/5 + fonda ${fonda} aligné`],
-      ['2','Zone d\'entrée', entry?`attendre le prix vers <b class="mono">${num(entry.p)}</b> (${entry.n})`:'—'],
-      ['3','Déclencheur',`<b style="color:var(--ember-b)">retournement de delta</b> (CVD se retourne / absorption) dans le sens ${dir}, DANS la zone`],
-      ['4','Entrée','au retournement confirmé, pas avant'],
-      ['5','Target', target?`<b class="mono" style="color:var(--blue)">${num(target.p)}</b> (${target.n}) — zone de valeur`:'—'],
-      ['6','Invalidation', entry?`clôture franche au-delà de <b class="mono">${num(entry.p)}</b>`:'—']
+    const cluster = entry ? lv.filter(z=>Math.abs(z.p-entry.p)<=20).length>=2 : false;
+    steps = gammaPos ? [
+      ['1','Biais',`<b style="color:${bc}">${bias}</b> · tech ${agree}/${N} + fonda ${fonda} aligné`],
+      ['2','Régime',`<b style="color:var(--bull)">Gamma +</b> → mean-reversion vers la valeur autorisée, targets POC/VA fiables`],
+      ['3','Zone',`prix vers <b class="mono">${num(entry.p)}</b> (${entry.n})${cluster?' · <b style="color:var(--ember-b)">cluster confluence</b>':''}`],
+      ['4','Déclencheur',`<b style="color:var(--ember-b)">retournement de momentum</b> (vitesse de ticks / CVD) dans le sens ${dir}, DANS la zone`],
+      ['5','Target', target?`<b class="mono" style="color:var(--blue)">${num(target.p)}</b> (${target.n})`:'—'],
+      ['6','Invalidation','dynamique : sortie si stagnation dans la zone sans réaction (time-in-zone) OU cassure de micro-structure']
+    ] : [
+      ['1','Biais',`<b style="color:${bc}">${bias}</b> · tech ${agree}/${N} + fonda ${fonda} aligné`],
+      ['2','Régime',`<b style="color:var(--bear)">Gamma −</b> → trend day : <b>mean-reversion désactivée</b>, on joue cassure / pullback`],
+      ['3','Zone',`prix vers <b class="mono">${num(entry.p)}</b> (${entry.n})${cluster?' · <b style="color:var(--ember-b)">cluster confluence</b>':''}`],
+      ['4','Déclencheur',`cassure confirmée + pullback dans le sens ${dir} (pas de fade)`],
+      ['5','Target', target?`<b class="mono" style="color:var(--blue)">${num(target.p)}</b> (${target.n})`:'—'],
+      ['6','Invalidation','dynamique : cassure de micro-structure dans le sens opposé']
     ];
   }
   const starStr=noTrade?'☆☆☆☆☆':('★'.repeat(stars)+'☆'.repeat(5-stars));
