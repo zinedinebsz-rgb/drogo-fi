@@ -352,6 +352,12 @@ function liveRead(D){
   window._read={price:p,bias:biasTxt,tech:agree+'/4',gamma:gammaPos?'+':'−',zone:nz.n,zd:Math.round(nd),loc};
 }
 let _inited=false,_prevPrice=null;
+// Structure order-flow (VP/POC/VWAP/CVD/TPO/bougies) rafraîchie chaque jour à 2h via data/snapshot.json ; FALLBACK = filet hors-ligne.
+let SNAP=FALLBACK;
+async function loadSnap(){
+  try{const r=await fetch('snapshot.json?t='+Date.now(),{cache:'no-store'});if(!r.ok)return;
+    const s=await r.json();if(s&&s.session&&s.session.bins&&s.session.bins.length){SNAP=s;}}catch(e){}
+}
 function liveTick(live,D){
   const pxEl=document.getElementById('pxVal');
   if(pxEl){pxEl.textContent=num(live.price);const up=_prevPrice==null?true:live.price>=_prevPrice;_prevPrice=live.price;
@@ -556,12 +562,12 @@ async function load(manual){
     if(!r.ok)throw new Error('api');
     const live=await r.json();
     if(!live.live)throw new Error('not live');
-    const D={...FALLBACK,...live,week:FALLBACK.week,month:FALLBACK.month,year:FALLBACK.year};
+    const D={...SNAP,...live,week:SNAP.week,month:SNAP.month,year:SNAP.year};
     if(!_inited){render(D);_inited=true;}else{liveTick(live,D);}
     setLive('','LIVE · '+(live.generated||'').slice(11));
   }catch(e){
-    if(!_inited){render(FALLBACK);_inited=true;}
-    setLive('delayed','snapshot '+FALLBACK.generated.slice(11));
+    if(!_inited){render(SNAP);_inited=true;}
+    setLive('delayed','snapshot '+(SNAP.generated||'').slice(11));
   }finally{if(manual)setTimeout(()=>btn.classList.remove('spin'),600)}
 }
 document.getElementById('refresh').addEventListener('click',()=>load(true));
@@ -639,8 +645,9 @@ function toggleFocus(open){const fv=document.getElementById('focusView');fv.styl
 document.getElementById('focusBtn').addEventListener('click',()=>toggleFocus(true));
 document.getElementById('focusClose').addEventListener('click',()=>toggleFocus(false));
 document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if(e.key==='Escape')toggleFocus(false);if(e.key==='f'||e.key==='F')toggleFocus(document.getElementById('focusView').style.display==='none');});
-load(false);
+loadSnap().then(()=>load(false));
 setInterval(()=>load(false),2000);
+setInterval(loadSnap,30*60*1000); // récupère le snapshot frais (refresh 2h) sans rechargement manuel
 
 function startStream(){
   if(!RELAY)return;
