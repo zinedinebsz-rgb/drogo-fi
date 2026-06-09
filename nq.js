@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 's-maxage=2, stale-while-revalidate=10');
   try {
-    const [c1, c2] = await Promise.all([cnbc('@ND.1').catch(() => ({})), cnbc('@ND.2').catch(() => ({}))]);
+    const [c1, c2, es, vix] = await Promise.all([cnbc('@ND.1').catch(() => ({})), cnbc('@ND.2').catch(() => ({})), cnbc('@SP.1').catch(() => ({})), cnbc('.VIX').catch(() => ({}))]);
     // contrat actif = plus gros volume
     let q = NUM(c2.volume) > NUM(c1.volume) ? c2 : c1;
     let price = NUM(q.last);
@@ -32,6 +32,7 @@ module.exports = async function handler(req, res) {
       open: f(q.open), high: f(q.high), low: f(q.low),
       volume: NUM(q.volume) || undefined,
       contract: q.name || 'NQ',
+      context: { es: { p: f(es.last), pct: f(es.change_pct) }, vix: { p: f(vix.last), pct: f(vix.change_pct) } },
       src: 'Nasdaq-100 (' + (q.name || 'NQ') + ') · ' + (q.last_time || '') + ' · CNBC'
     });
   } catch (e) {

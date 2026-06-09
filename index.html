@@ -345,7 +345,7 @@ function liveRead(D){
     action=`Dans la valeur → je joue les bords : rejet à <b class="mono">${num(s.vah)}</b> (VAH) = short rapide, soutien au cluster <b class="mono">${clu}</b> = long. Pas de trade au milieu.`;}
   const chgCol=D.change>=0?'var(--bull)':'var(--bear)';
   const ph=sessionPhase();
-  const stats=`<span style="color:${ph.c}">● ${ph.t}</span> · ${D.contract?D.contract+' · ':''}${D.open?'O '+num(D.open)+' · H '+num(D.high)+' · B '+num(D.low):''}${D.change_pct!=null?' · <span style="color:'+chgCol+'">'+(D.change_pct>=0?'+':'')+D.change_pct+'%</span>':''}${D.high&&D.low?' · range '+num(D.high-D.low)+' pts':''}`;
+  const stats=`<span style="color:${ph.c}">● ${ph.t}</span> · ${D.contract?D.contract+' · ':''}${D.open?'O '+num(D.open)+' · H '+num(D.high)+' · B '+num(D.low):''}${D.change_pct!=null?' · <span style="color:'+chgCol+'">'+(D.change_pct>=0?'+':'')+D.change_pct+'%</span>':''}${D.high&&D.low?' · range '+num(D.high-D.low)+' pts':''}${D.context&&D.context.es&&D.context.es.p?' · <span style="color:var(--dim)">ES '+num(D.context.es.p)+(D.context.es.pct!=null?' ('+(D.context.es.pct>=0?'+':'')+D.context.es.pct+'%)':'')+'</span>':''}${D.context&&D.context.vix&&D.context.vix.p?' · <span style="color:'+(D.context.vix.p>20?'var(--bear)':'var(--bull)')+'">VIX '+D.context.vix.p+'</span>':''}`;
   el.innerHTML=`<div style="font-family:var(--mono);font-size:.76rem;color:var(--faint);margin-bottom:.6rem;letter-spacing:.02em">${stats}</div>Prix <b class="mono">${num(p)}</b>${D.change!=null?' (<span style="color:'+chgCol+'">'+(D.change>=0?'+':'')+Math.round(D.change)+'</span>)':''} · biais <b style="color:${biasCol}">${biasTxt}</b> (tech ${agree}/4) · régime <b style="color:${gammaPos?'var(--bull)':'var(--bear)'}">${gammaPos?'Gamma +':'Gamma −'}</b>. Le prix est <b style="color:${locCol}">${loc}</b>${nearTxt}.<div style="margin-top:.55rem;padding-top:.55rem;border-top:1px solid var(--bd)"><b style="color:var(--ember-b)">Ce que je ferais :</b> ${action}</div>`;
   window._read={price:p,bias:biasTxt,tech:agree+'/4',gamma:gammaPos?'+':'−',zone:nz.n,zd:Math.round(nd),loc};
 }
@@ -522,7 +522,7 @@ function buildCVD(D){
 }
 function ladder(D){
   const s=D.session,w=D.week,m=D.month;
-  const base=[{l:'Prix',p:D.price,c:C.dim,w:2},{l:'VWAP',p:D.vwap,c:C.dim,w:1},
+  const base=[{l:'● Prix',p:D.price,c:C.ember,w:3},{l:'VWAP',p:D.vwap,c:C.dim,w:1},
     {l:'POC jour',p:s.poc,c:C.blue,w:2},{l:'VAH jour',p:s.vah,c:C.va,w:1},{l:'VAL jour',p:s.val,c:C.va,w:1},
     {l:'POC sem.',p:w.poc,c:C.blue,w:2},{l:'POC mois',p:m.poc,c:C.blue,w:2},{l:'VAL mois',p:m.val,c:C.va,w:1}];
   const flip=+document.getElementById('flip').value,cw=+document.getElementById('cw').value,pw=+document.getElementById('pw').value;
@@ -612,7 +612,7 @@ function renderFocus(){
 function toggleFocus(open){const fv=document.getElementById('focusView');fv.style.display=open?'flex':'none';document.getElementById('focusBtn').style.color=open?'var(--ember-b)':'';if(open)renderFocus();}
 document.getElementById('focusBtn').addEventListener('click',()=>toggleFocus(true));
 document.getElementById('focusClose').addEventListener('click',()=>toggleFocus(false));
-document.addEventListener('keydown',e=>{if(e.key==='Escape')toggleFocus(false);});
+document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if(e.key==='Escape')toggleFocus(false);if(e.key==='f'||e.key==='F')toggleFocus(document.getElementById('focusView').style.display==='none');});
 load(false);
 setInterval(()=>load(false),2000);
 
