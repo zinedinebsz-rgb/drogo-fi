@@ -155,9 +155,11 @@ footer b{color:var(--dim)}
     <div class="status">
       <div id="liveBadge" class="live delayed"><span class="led"></span><span id="liveTxt">connexion…</span></div>
       <div class="clock" id="clock">--:--:--</div>
+      <button class="rbtn" id="sound" aria-label="Alertes son" title="Son des alertes de zone"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg><span id="soundLbl">Son</span></button>
       <button class="rbtn" id="refresh" aria-label="Rafraîchir"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>Refresh</button>
     </div>
   </div>
+  <div id="toast" style="position:fixed;top:18px;right:18px;z-index:50;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
   <hr class="hairline">
 
   <div class="regime reveal" id="regime" style="animation-delay:.05s">
@@ -241,6 +243,12 @@ footer b{color:var(--dim)}
     <div class="desc" style="margin-top:var(--s5);margin-bottom:0">Contexte annuel — haut <span id="yh" class="mono"></span> · bas <span id="yl" class="mono"></span> · VWAP annuel <span id="yv" class="mono"></span> <span id="ybias"></span></div>
   </div>
 
+  <div class="card reveal" style="animation-delay:.28s;margin-bottom:var(--s8)">
+    <h2><span class="gl"></span>Journal de setups<button id="logBtn" class="rbtn" style="margin-left:auto"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>Logger ce moment</button></h2>
+    <div class="desc">Capture le contexte (prix, biais, zone, régime) en 1 clic pour mesurer ton edge dans le temps.</div>
+    <div id="journal" style="overflow-x:auto"></div>
+  </div>
+
   <footer>
     <b>DROGO FI</b> — données NQ=F réelles via flux serveur, rafraîchies automatiquement (~délai 10-15 min en palier gratuit). GEX saisi depuis TradingView · CVD = proxy tick-rule. Le moteur est identique quel que soit le feed ; seule la source se branche derrière.<br>
     Outil d'analyse — <b>pas un conseil d'investissement</b>. Décisions de trade et gestion du risque restent les tiennes.
@@ -286,6 +294,13 @@ function render(D){
   buildChart(D);buildVP(D);buildCVD(D);ladder(D);regime(D);buildTPO(D);computePlan(D);liveRead(D);
 }
 
+let _lastZone=null, _soundOn=localStorage.getItem('drogo_sound')==='1';
+function _bell(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.type='sine';o.frequency.value=880;g.gain.setValueAtTime(.0001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.22,ctx.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+.35);o.start();o.stop(ctx.currentTime+.36);}catch(e){}}
+function showToast(html,col){const t=document.getElementById('toast');if(!t)return;const d=document.createElement('div');
+  d.style.cssText=`background:var(--panel2);border:1px solid ${col};border-left:4px solid ${col};border-radius:10px;padding:.7rem 1rem;font-size:.86rem;color:var(--tx);box-shadow:0 10px 34px rgba(0,0,0,.45);max-width:300px;opacity:0;transform:translateX(22px);transition:.32s cubic-bezier(.16,1,.3,1)`;
+  d.innerHTML=html;t.appendChild(d);requestAnimationFrame(()=>{d.style.opacity='1';d.style.transform='none';});
+  setTimeout(()=>{d.style.opacity='0';d.style.transform='translateX(22px)';setTimeout(()=>d.remove(),350);},6000);}
+function zoneAlert(z){showToast(`<b style="color:var(--ember-b)">● Prix sur ${z.n}</b> <span class="mono">${num(z.p)}</span><div style="color:var(--dim);font-size:.78rem;margin-top:.2rem">Zone de réaction — guette le retournement.</div>`,'var(--ember)');if(_soundOn)_bell();}
 function liveRead(D){
   const el=document.getElementById('liveread'); if(!el) return;
   const p=D.price, s=D.session, vwap=D.vwap, f=+document.getElementById('flip').value;
@@ -299,6 +314,7 @@ function liveRead(D){
   const atZone=nd<=8;
   const lrcard=document.getElementById('lrcard');
   if(lrcard)lrcard.style.boxShadow=atZone?'0 0 0 1px var(--ember), 0 0 26px oklch(70% 0.17 55/.28)':'';
+  if(atZone && nz.n!==_lastZone){_lastZone=nz.n;zoneAlert(nz);} else if(!atZone){_lastZone=null;}
   const nearTxt=atZone?` <b style="color:var(--ember-b)">● SUR ${nz.n} (${num(nz.p)})</b>`:` · à <b class="mono">${Math.round(nd)} pts</b> de ${nz.n} (${num(nz.p)})`;
   let loc,locCol,action;
   if(p>s.vah){loc='étendu au-dessus de la Value Area, proche des hauts';locCol='var(--ember-b)';
@@ -312,6 +328,7 @@ function liveRead(D){
   const chgCol=D.change>=0?'var(--bull)':'var(--bear)';
   const stats=`${D.contract?D.contract+' · ':''}${D.open?'O '+num(D.open)+' · H '+num(D.high)+' · B '+num(D.low):''}${D.change_pct!=null?' · <span style="color:'+chgCol+'">'+(D.change_pct>=0?'+':'')+D.change_pct+'%</span>':''}${D.high&&D.low?' · range '+num(D.high-D.low)+' pts':''}`;
   el.innerHTML=`<div style="font-family:var(--mono);font-size:.76rem;color:var(--faint);margin-bottom:.6rem;letter-spacing:.02em">${stats}</div>Prix <b class="mono">${num(p)}</b>${D.change!=null?' (<span style="color:'+chgCol+'">'+(D.change>=0?'+':'')+Math.round(D.change)+'</span>)':''} · biais <b style="color:${biasCol}">${biasTxt}</b> (tech ${agree}/4) · régime <b style="color:${gammaPos?'var(--bull)':'var(--bear)'}">${gammaPos?'Gamma +':'Gamma −'}</b>. Le prix est <b style="color:${locCol}">${loc}</b>${nearTxt}.<div style="margin-top:.55rem;padding-top:.55rem;border-top:1px solid var(--bd)"><b style="color:var(--ember-b)">Ce que je ferais :</b> ${action}</div>`;
+  window._read={price:p,bias:biasTxt,tech:agree+'/4',gamma:gammaPos?'+':'−',zone:nz.n,zd:Math.round(nd),loc};
 }
 let _inited=false,_prevPrice=null;
 function liveTick(live,D){
@@ -522,6 +539,21 @@ async function load(manual){
   }finally{if(manual)setTimeout(()=>btn.classList.remove('spin'),600)}
 }
 document.getElementById('refresh').addEventListener('click',()=>load(true));
+(function(){const sb=document.getElementById('sound');if(!sb)return;
+  function upd(){sb.style.color=_soundOn?'var(--ember-b)':'';sb.style.borderColor=_soundOn?'var(--ember)':'';const l=document.getElementById('soundLbl');if(l)l.textContent=_soundOn?'Son ON':'Son';}
+  sb.addEventListener('click',()=>{_soundOn=!_soundOn;localStorage.setItem('drogo_sound',_soundOn?'1':'0');upd();if(_soundOn)_bell();});upd();})();
+function getJournal(){try{return JSON.parse(localStorage.getItem('drogo_journal')||'[]')}catch(e){return[]}}
+function saveJournal(a){localStorage.setItem('drogo_journal',JSON.stringify(a))}
+function logSetup(){const r=window._read;if(!r){showToast('Données pas encore chargées','var(--bear)');return;}const j=getJournal();
+  j.unshift({t:Date.now(),price:r.price,bias:r.bias,tech:r.tech,gamma:r.gamma,zone:r.zone,zd:r.zd});
+  saveJournal(j.slice(0,50));renderJournal();showToast('<b style="color:var(--bull)">✓ Setup loggé</b> <span class="mono">'+num(r.price)+'</span> · '+r.bias,'var(--bull)');}
+function renderJournal(){const el=document.getElementById('journal');if(!el)return;const j=getJournal();
+  if(!j.length){el.innerHTML='<div style="color:var(--faint);font-size:.85rem">Aucun setup loggé. Clique « Logger ce moment » quand tu repères une situation à suivre.</div>';return;}
+  el.innerHTML='<table><thead><tr><th>Heure</th><th>Prix</th><th>Biais</th><th>Tech</th><th>Gamma</th><th>Zone</th><th></th></tr></thead><tbody>'+
+    j.map((x,i)=>`<tr><td>${new Date(x.t).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td class="mono">${num(x.price)}</td><td style="color:${x.bias==='haussier'?'var(--bull)':x.bias==='baissier'?'var(--bear)':'var(--dim)'}">${x.bias}</td><td class="mono">${x.tech}</td><td class="mono">${x.gamma}</td><td>${x.zone} (${x.zd}p)</td><td style="text-align:right"><span data-i="${i}" class="jdel" style="cursor:pointer;color:var(--faint);padding:0 4px">✕</span></td></tr>`).join('')+'</tbody></table>';
+  el.querySelectorAll('.jdel').forEach(b=>b.addEventListener('click',()=>{const a=getJournal();a.splice(+b.dataset.i,1);saveJournal(a);renderJournal();}));}
+document.getElementById('logBtn').addEventListener('click',logSetup);
+renderJournal();
 load(false);
 setInterval(()=>load(false),2000);
 
