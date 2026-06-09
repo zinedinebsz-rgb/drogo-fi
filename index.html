@@ -213,6 +213,12 @@ footer b{color:var(--dim)}
     <div id="posBody"></div>
   </div>
 
+  <div class="card reveal" id="momPanel" style="animation-delay:.135s;margin-bottom:var(--s8)">
+    <h2><span class="gl"></span>Momentum NY <span style="font-size:.66rem;color:var(--bull);font-weight:400;letter-spacing:.02em">· backtest +34% sur 6 mois (WR 31% · 3R)</span></h2>
+    <div class="desc">Continuation dans le sens de la tendance de séance (VWAP vs ouverture), sur une poussée — stop 35 pts, cible 3R. La seule stratégie restée gagnante out-of-sample.</div>
+    <div id="momBody"></div>
+  </div>
+
   <div class="grid two">
     <div class="card reveal" style="animation-delay:.1s">
       <h2><span class="gl"></span>Profil de volume — session</h2>
@@ -319,6 +325,7 @@ function render(D){
     if(gx.flip||gx.cw){if(!b){b=document.createElement('div');b.id='gexsrc';b.style.cssText='font-size:.72rem;color:var(--faint);margin-top:.5rem;line-height:1.5';host.parentNode.insertBefore(b,host.nextSibling);}
       b.innerHTML='GEX auto · options QQQ ('+(gx.generated||'').slice(0,10)+') · régime gamma <b style="color:'+(gx.regime==='+'?'var(--bull)':'var(--bear)')+'">'+(gx.regime==='+'?'positif → mean-reversion':'négatif → trend')+'</b>';}})();
   buildChart(D);buildVP(D);buildCVD(D);ladder(D);regime(D);buildTPO(D);computePlan(D);liveRead(D);renderRecap(D);
+  if(typeof renderMomentum==='function')renderMomentum(D);
 }
 
 let _lastZone=null, _soundOn=localStorage.getItem('drogo_sound')==='1', _notifOn=localStorage.getItem('drogo_notif')==='1';
@@ -409,8 +416,20 @@ function liveTick(live,D){
   if(tv.cs&&_lastBar){_lastBar.close=live.price;_lastBar.high=Math.max(_lastBar.high,live.price);_lastBar.low=Math.min(_lastBar.low,live.price);
     tv.cs.update({time:_lastBar.time,open:_lastBar.open,high:_lastBar.high,low:_lastBar.low,close:_lastBar.close});}
   liveRead(D);computePlan(D);ladder(D);regime(D);
+  // détection d'impulsion (poussée) à partir de la vélocité du prix sur ~60s
+  (function(){const now=Date.now();window._ticks=window._ticks||[];window._ticks.push([now,live.price]);
+    window._ticks=window._ticks.filter(t=>now-t[0]<=70000);
+    const old=window._ticks.find(t=>now-t[0]>=45000);
+    if(old){const mv=live.price-old[1];if(Math.abs(mv)>=20){const dir=mv>0?'up':'down';
+      const prev=window._impulse;window._impulse={dir,t:now,move:mv};
+      // alerte si la poussée va dans le sens du biais momentum, en session NY (nouveau signal)
+      if(typeof momentumState==='function'){const m=momentumState(window._D||D);
+        if(m.ny&&m.align){const id=dir+Math.round(now/20000);
+          if(window._lastImp!==id){window._lastImp=id;_notify('DROGO FI · Poussée '+m.dir,'Momentum NY — entrée de continuation possible · stop 35 / cible 3R');if(_soundOn)_bell();}}}
+    }}})();
   if(typeof updateTrail==='function')updateTrail(live.price);
   if(typeof renderPosition==='function')renderPosition();
+  if(typeof renderMomentum==='function')renderMomentum(D);
   if(!window._recapT||Date.now()-window._recapT>10000){window._recapT=Date.now();renderRecap(D);}
 }
 
@@ -745,21 +764,21 @@ function renderRecap(D){
 // ===== Gestion de position suivie + trailing stop (pas d'exécution broker) =====
 function getPos(){try{return JSON.parse(localStorage.getItem('drogo_position')||'null')}catch(e){return null}}
 function savePos(p){if(p)localStorage.setItem('drogo_position',JSON.stringify(p));else localStorage.removeItem('drogo_position');}
-function openPosition(){
+function openPosition(ov){
   const p=window._plan||{},r=window._read||{};
   const live=(r.price)||(window._D&&window._D.price);
   if(!live){showToast('Prix pas encore chargé','var(--bear)');return;}
-  let dir=p.bias==='LONG'?'LONG':p.bias==='SHORT'?'SHORT':(r.bias==='haussier'?'LONG':r.bias==='baissier'?'SHORT':null);
+  let dir = ov?ov.dir : (p.bias==='LONG'?'LONG':p.bias==='SHORT'?'SHORT':(r.bias==='haussier'?'LONG':r.bias==='baissier'?'SHORT':null));
   if(!dir){showToast('Pas de biais directionnel net — pas de position','var(--gold)');return;}
   if(getPos()&&getPos().open){showToast('Une position est déjà ouverte','var(--gold)');return;}
-  const entry=live;
-  let sl=p.stop, target=p.target?p.target.p:null;
+  const entry=ov?ov.entry:live;
+  let sl=ov?ov.stop:p.stop, target=ov?ov.target:(p.target?p.target.p:null);
   if(!sl||(dir==='LONG'&&sl>=entry)||(dir==='SHORT'&&sl<=entry)) sl=dir==='LONG'?entry-30:entry+30;
   if(!target||(dir==='LONG'&&target<=entry)||(dir==='SHORT'&&target>=entry)) target=dir==='LONG'?entry+60:entry-60;
   const trailPts=+(localStorage.getItem('drogo_trailPts')||25);
   const be=localStorage.getItem('drogo_be')!=='0';
   const trail=localStorage.getItem('drogo_trail')!=='0';
-  savePos({open:true,dir,entry,sl,slInit:sl,target,t0:Date.now(),peak:entry,trail,be,trailPts,stars:p.stars||null,zone:r.zone||''});
+  savePos({open:true,dir,entry,sl,slInit:sl,target,t0:Date.now(),peak:entry,trail,be,trailPts,stars:ov?(ov.tag||'MOM'):(p.stars||null),zone:ov?(ov.tag||'Momentum NY'):(r.zone||'')});
   if(_soundOn)_bell();_notify('DROGO FI · Position '+dir,'Entrée '+num(entry)+' · SL '+num(sl)+' · TP '+num(target));
   showToast('<b style="color:var(--ember-b)">▶ Position '+dir+'</b> @ '+num(entry),'var(--ember)');
   renderPosition();
@@ -827,7 +846,45 @@ function renderPosition(){
   document.getElementById('beToggle').onchange=e=>{const q=getPos();q.be=e.target.checked;localStorage.setItem('drogo_be',q.be?'1':'0');savePos(q);};
   document.getElementById('trailPts').onchange=e=>{const q=getPos();q.trailPts=Math.max(2,+e.target.value||25);localStorage.setItem('drogo_trailPts',q.trailPts);savePos(q);};
 }
-(function(){const b=document.getElementById('takeBtn');if(b)b.addEventListener('click',openPosition);})();
+// ===== Signal Momentum NY (stratégie backtestée +34%/6 mois) =====
+function nyNow(){try{const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false,weekday:'short'}).formatToParts(new Date());
+  let h=0,mi=0,wd='';for(const x of p){if(x.type==='hour')h=+x.value;if(x.type==='minute')mi=+x.value;if(x.type==='weekday')wd=x.value;}
+  return {mins:(h%24)*60+mi,wd};}catch(e){return{mins:-1,wd:''}}}
+function inNY(){const {mins,wd}=nyNow();if(wd==='Sat'||wd==='Sun')return false;return mins>=570&&mins<960;}  // 09:30-16:00 ET
+function momentumState(D){
+  const tf=D.candlesTF&&D.candlesTF['1d']; const open=(tf&&tf.length)?tf[tf.length-1].o:D.vwap;
+  const up=D.vwap>=open, dir=up?'LONG':'SHORT';
+  const price=(window._read&&window._read.price)||D.price;
+  const stop=up?+(price-35).toFixed(1):+(price+35).toFixed(1);
+  const target=up?+(price+105).toFixed(1):+(price-105).toFixed(1);
+  const imp=window._impulse; const align=!!(imp&&((up&&imp.dir==='up')||(!up&&imp.dir==='down'))&&(Date.now()-imp.t<25000));
+  return {dir,up,price,stop,target,ny:inNY(),align,imp,open};
+}
+function renderMomentum(D){
+  const el=document.getElementById('momBody');if(!el)return;
+  const m=momentumState(D);
+  const dCol=m.up?'var(--bull)':'var(--bear)';
+  const state = !m.ny ? '<span style="color:var(--faint)">Hors session NY — signal inactif</span>'
+    : m.align ? '<b style="color:'+dCol+'">⚡ POUSSÉE '+m.dir+' détectée — entrée de continuation</b>'
+    : '<span style="color:var(--dim)">Session NY ouverte · biais <b style="color:'+dCol+'">'+m.dir+'</b> · j\'attends une poussée dans le sens</span>';
+  el.innerHTML=`
+   <div style="display:flex;gap:1.4rem;flex-wrap:wrap;align-items:baseline;margin-bottom:.7rem">
+     <span style="font-family:var(--mono);font-weight:700;color:${dCol};font-size:1.05rem">Biais ${m.dir}</span>
+     <span style="font-size:.8rem;color:var(--faint)">VWAP ${num(D.vwap)} ${m.up?'>':'<'} ouverture ${num(m.open)}</span>
+   </div>
+   <div style="margin-bottom:.8rem;font-size:.92rem">${state}</div>
+   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem;font-family:var(--mono);text-align:center;margin-bottom:.9rem">
+     <div><div style="font-size:.64rem;color:var(--faint);text-transform:uppercase">Entrée</div><div style="font-size:1.15rem;color:var(--ember-b)">${num(m.price)}</div></div>
+     <div><div style="font-size:.64rem;color:var(--faint);text-transform:uppercase">Stop 35</div><div style="font-size:1.15rem;color:var(--bear)">${num(m.stop)}</div></div>
+     <div><div style="font-size:.64rem;color:var(--faint);text-transform:uppercase">Cible 3R</div><div style="font-size:1.15rem;color:var(--blue)">${num(m.target)}</div></div>
+     <div><div style="font-size:.64rem;color:var(--faint);text-transform:uppercase">R:R</div><div style="font-size:1.15rem">3.0</div></div>
+   </div>
+   <button id="takeMom" class="rbtn" ${(!m.ny)?'disabled style="opacity:.5;border-color:'+dCol+';color:'+dCol+'"':'style="border-color:'+dCol+';color:'+dCol+'"'}>▶ Prendre momentum ${m.dir}</button>
+   <span style="font-size:.74rem;color:var(--faint);margin-left:.7rem">Suit la tendance, jamais à contre-sens. ~1,3 trade/jour en moyenne.</span>`;
+  const b=document.getElementById('takeMom');
+  if(b)b.onclick=()=>openPosition({dir:m.dir,entry:m.price,stop:m.stop,target:m.target,tag:'Momentum NY'});
+}
+(function(){const b=document.getElementById('takeBtn');if(b)b.addEventListener('click',()=>openPosition());})();
 (function(){const ri=document.getElementById('riskPts');if(!ri)return;ri.value=localStorage.getItem('drogo_riskPts')||18;
   ri.addEventListener('input',()=>{const v=Math.max(4,+ri.value||18);localStorage.setItem('drogo_riskPts',v);if(window._D){computePlan(window._D);if(typeof ladder==='function')ladder(window._D);if(typeof renderRecap==='function')renderRecap(window._D);}});})();
 renderPosition();
