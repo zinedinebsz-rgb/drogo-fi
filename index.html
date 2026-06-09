@@ -157,6 +157,7 @@ footer b{color:var(--dim)}
       <div class="clock" id="clock">--:--:--</div>
       <button class="rbtn" id="focusBtn" aria-label="Mode focus" title="Mode focus exécution"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>Focus</button>
       <button class="rbtn" id="sound" aria-label="Alertes son" title="Son des alertes de zone"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg><span id="soundLbl">Son</span></button>
+      <button class="rbtn" id="notif" aria-label="Notifications" title="Notifications navigateur"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H5.2L4 17.2z"/></svg><span id="notifLbl">Notif</span></button>
       <button class="rbtn" id="refresh" aria-label="Rafraîchir"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>Refresh</button>
     </div>
   </div>
@@ -303,13 +304,14 @@ function render(D){
   buildChart(D);buildVP(D);buildCVD(D);ladder(D);regime(D);buildTPO(D);computePlan(D);liveRead(D);
 }
 
-let _lastZone=null, _soundOn=localStorage.getItem('drogo_sound')==='1';
+let _lastZone=null, _soundOn=localStorage.getItem('drogo_sound')==='1', _notifOn=localStorage.getItem('drogo_notif')==='1';
+function _notify(title,body){try{if(_notifOn&&'Notification'in window&&Notification.permission==='granted')new Notification(title,{body,silent:!_soundOn});}catch(e){}}
 function _bell(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.type='sine';o.frequency.value=880;g.gain.setValueAtTime(.0001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.22,ctx.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+.35);o.start();o.stop(ctx.currentTime+.36);}catch(e){}}
 function showToast(html,col){const t=document.getElementById('toast');if(!t)return;const d=document.createElement('div');
   d.style.cssText=`background:var(--panel2);border:1px solid ${col};border-left:4px solid ${col};border-radius:10px;padding:.7rem 1rem;font-size:.86rem;color:var(--tx);box-shadow:0 10px 34px rgba(0,0,0,.45);max-width:300px;opacity:0;transform:translateX(22px);transition:.32s cubic-bezier(.16,1,.3,1)`;
   d.innerHTML=html;t.appendChild(d);requestAnimationFrame(()=>{d.style.opacity='1';d.style.transform='none';});
   setTimeout(()=>{d.style.opacity='0';d.style.transform='translateX(22px)';setTimeout(()=>d.remove(),350);},6000);}
-function zoneAlert(z){showToast(`<b style="color:var(--ember-b)">● Prix sur ${z.n}</b> <span class="mono">${num(z.p)}</span><div style="color:var(--dim);font-size:.78rem;margin-top:.2rem">Zone de réaction — guette le retournement.</div>`,'var(--ember)');if(_soundOn)_bell();}
+function zoneAlert(z){const pr=window._read?window._read.price:'';showToast(`<b style="color:var(--ember-b)">● Prix sur ${z.n}</b> <span class="mono">${num(z.p)}</span><div style="color:var(--dim);font-size:.78rem;margin-top:.2rem">Zone de réaction — guette le retournement.</div>`,'var(--ember)');if(_soundOn)_bell();_notify('DROGO FI · Prix sur '+z.n,'NQ '+(pr?num(pr):'')+' sur '+z.n+' ('+num(z.p)+') — zone de réaction.');}
 function sessionPhase(){
   const et=new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}));
   const day=et.getDay(), mins=et.getHours()*60+et.getMinutes();
@@ -398,7 +400,8 @@ function computePlan(D){
   if(bias==='LONG'){entry=nearBelow;target=above.slice().reverse().find(z=>/POC|VAH/.test(z.n))||nearAbove;}
   else if(bias==='SHORT'){entry=nearAbove;target=below.find(z=>/POC|VAL/.test(z.n))||nearBelow;}
   const dir=bias==='LONG'?'acheteur':bias==='SHORT'?'vendeur':'—';
-  window._plan={bias,stars,entry,target,actionable,gammaPos,dir,noTrade,contradiction};
+  const stop = bias==='LONG'?D.session.val:bias==='SHORT'?D.session.vah:null;
+  window._plan={bias,stars,entry,target,stop,actionable,gammaPos,dir,noTrade,contradiction};
   if(typeof renderFocus==='function')renderFocus();
   let steps;
   if(contradiction){
@@ -563,10 +566,21 @@ document.getElementById('refresh').addEventListener('click',()=>load(true));
 (function(){const sb=document.getElementById('sound');if(!sb)return;
   function upd(){sb.style.color=_soundOn?'var(--ember-b)':'';sb.style.borderColor=_soundOn?'var(--ember)':'';const l=document.getElementById('soundLbl');if(l)l.textContent=_soundOn?'Son ON':'Son';}
   sb.addEventListener('click',()=>{_soundOn=!_soundOn;localStorage.setItem('drogo_sound',_soundOn?'1':'0');upd();if(_soundOn)_bell();});upd();})();
+(function(){const nb=document.getElementById('notif');if(!nb)return;
+  function upd(){const ok=_notifOn&&('Notification'in window)&&Notification.permission==='granted';nb.style.color=ok?'var(--ember-b)':'';nb.style.borderColor=ok?'var(--ember)':'';const l=document.getElementById('notifLbl');if(l)l.textContent=ok?'Notif ON':'Notif';}
+  nb.addEventListener('click',async()=>{
+    if(!('Notification'in window)){showToast('Notifications non supportées par ce navigateur','var(--bear)');return;}
+    if(_notifOn){_notifOn=false;localStorage.setItem('drogo_notif','0');upd();return;}
+    let perm=Notification.permission;if(perm!=='granted')perm=await Notification.requestPermission();
+    if(perm==='granted'){_notifOn=true;localStorage.setItem('drogo_notif','1');upd();try{new Notification('DROGO FI','Notifications activées ✓ — tu seras alerté quand le prix touche une zone.');}catch(e){}}
+    else showToast('Permission refusée — autorise les notifications du site','var(--bear)');
+  });upd();})();
 function getJournal(){try{return JSON.parse(localStorage.getItem('drogo_journal')||'[]')}catch(e){return[]}}
 function saveJournal(a){localStorage.setItem('drogo_journal',JSON.stringify(a))}
 function logSetup(){const r=window._read;if(!r){showToast('Données pas encore chargées','var(--bear)');return;}const j=getJournal();
-  j.unshift({t:Date.now(),price:r.price,bias:r.bias,tech:r.tech,gamma:r.gamma,zone:r.zone,zd:r.zd});
+  const pl=window._plan||{};
+  j.unshift({t:Date.now(),price:r.price,bias:r.bias,tech:r.tech,gamma:r.gamma,zone:r.zone,zd:r.zd,
+    setup:pl.bias,stars:pl.stars,entry:pl.entry?pl.entry.p:null,target:pl.target?pl.target.p:null,stop:pl.stop||null});
   saveJournal(j.slice(0,50));renderJournal();showToast('<b style="color:var(--bull)">✓ Setup loggé</b> <span class="mono">'+num(r.price)+'</span> · '+r.bias,'var(--bull)');}
 function setResult(i,r){const a=getJournal();a[i].r=a[i].r===r?null:r;saveJournal(a);renderJournal();}
 function renderJournal(){const el=document.getElementById('journal');if(!el)return;const j=getJournal();
@@ -576,8 +590,8 @@ function renderJournal(){const el=document.getElementById('journal');if(!el)retu
   const zs=Object.entries(bz).filter(([,o])=>o.t>=2).sort((a,b)=>b[1].w/b[1].t-a[1].w/a[1].t).map(([z,o])=>`${z} <b style="color:${o.w/o.t>=.5?'var(--bull)':'var(--bear)'}">${Math.round(o.w/o.t*100)}%</b>(${o.t})`).join(' · ');
   const stats=`<div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-bottom:.9rem;font-size:.84rem;align-items:baseline"><span style="color:var(--dim)">${j.length} setups</span>${wr!=null?`<span>Winrate <b style="color:${wr>=50?'var(--bull)':'var(--bear)'}">${wr}%</b> <span style="color:var(--faint)">(${wins}W / ${losses}L)</span></span>`:'<span style="color:var(--faint)">note les résultats →</span>'}${zs?`<span style="color:var(--faint)">par zone : ${zs}</span>`:''}</div>`;
   const rb=(i,x,r,lbl,col)=>`<span class="jres" data-i="${i}" data-r="${r}" style="cursor:pointer;padding:1px 6px;border-radius:4px;font-size:.72rem;margin-right:2px;${x.r===r?'background:'+col+';color:#111;font-weight:700':'color:'+col+';border:1px solid '+col}">${lbl}</span>`;
-  el.innerHTML=stats+'<table><thead><tr><th>Heure</th><th>Prix</th><th>Biais</th><th>Tech</th><th>Gamma</th><th>Zone</th><th>Résultat</th><th></th></tr></thead><tbody>'+
-    j.map((x,i)=>`<tr><td>${new Date(x.t).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td class="mono">${num(x.price)}</td><td style="color:${x.bias==='haussier'?'var(--bull)':x.bias==='baissier'?'var(--bear)':'var(--dim)'}">${x.bias}</td><td class="mono">${x.tech}</td><td class="mono">${x.gamma}</td><td>${x.zone} (${x.zd}p)</td><td style="white-space:nowrap">${rb(i,x,'w','W','var(--bull)')}${rb(i,x,'l','L','var(--bear)')}${rb(i,x,'be','BE','var(--dim)')}</td><td style="text-align:right"><span data-i="${i}" class="jdel" style="cursor:pointer;color:var(--faint);padding:0 4px">✕</span></td></tr>`).join('')+'</tbody></table>';
+  el.innerHTML=stats+'<table><thead><tr><th>Heure</th><th>Prix</th><th>Biais</th><th>Tech</th><th>Gamma</th><th>Zone</th><th>Entrée</th><th>Stop</th><th>Target</th><th>R:R</th><th>Résultat</th><th></th></tr></thead><tbody>'+
+    j.map((x,i)=>`<tr><td>${new Date(x.t).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td class="mono">${num(x.price)}</td><td style="color:${x.bias==='haussier'?'var(--bull)':x.bias==='baissier'?'var(--bear)':'var(--dim)'}">${x.bias}</td><td class="mono">${x.tech}</td><td class="mono">${x.gamma}</td><td>${x.zone} (${x.zd}p)</td><td class="mono" style="color:var(--ember-b)">${x.entry?num(x.entry):'—'}</td><td class="mono" style="color:var(--bear)">${x.stop?num(x.stop):'—'}</td><td class="mono" style="color:var(--blue)">${x.target?num(x.target):'—'}</td><td class="mono">${(x.entry&&x.target&&x.stop&&Math.abs(x.entry-x.stop)>0)?(Math.abs(x.target-x.entry)/Math.abs(x.entry-x.stop)).toFixed(1):'—'}</td><td style="white-space:nowrap">${rb(i,x,'w','W','var(--bull)')}${rb(i,x,'l','L','var(--bear)')}${rb(i,x,'be','BE','var(--dim)')}</td><td style="text-align:right"><span data-i="${i}" class="jdel" style="cursor:pointer;color:var(--faint);padding:0 4px">✕</span></td></tr>`).join('')+'</tbody></table>';
   el.querySelectorAll('.jres').forEach(b=>b.addEventListener('click',()=>setResult(+b.dataset.i,b.dataset.r)));
   el.querySelectorAll('.jdel').forEach(b=>b.addEventListener('click',()=>{const a=getJournal();a.splice(+b.dataset.i,1);saveJournal(a);renderJournal();}));}
 document.getElementById('logBtn').addEventListener('click',logSetup);
