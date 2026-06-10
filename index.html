@@ -214,8 +214,8 @@ footer b{color:var(--dim)}
   </div>
 
   <div class="card reveal" id="momPanel" style="animation-delay:.135s;margin-bottom:var(--s8)">
-    <h2><span class="gl"></span>Momentum NY <span style="font-size:.66rem;color:var(--bull);font-weight:400;letter-spacing:.02em">· backtest +34% sur 6 mois (WR 31% · 3R)</span></h2>
-    <div class="desc">Continuation dans le sens de la tendance de séance (VWAP vs ouverture), sur une poussée — stop 35 pts, cible 3R. La seule stratégie restée gagnante out-of-sample.</div>
+    <h2><span class="gl"></span>Momentum NY <span style="font-size:.66rem;color:var(--bull);font-weight:400;letter-spacing:.02em">· v2 validé IS+OOS · 7 mois / 7 positifs (WR 30% · 3R)</span></h2>
+    <div class="desc">Continuation dans le sens de la tendance de séance (VWAP vs ouverture), sur une poussée — stop 35 pts, cible 3R. La seule stratégie gagnante out-of-sample. v2 : entrées en matinée (09:45–12:00 ET) = l'espérance la plus stable (+0,14R OOS, +22,8%/6 mois, max DD −11,5%). Les variantes « haut winrate » (48%) ont été testées : elles gagnent 5× moins — détails dans le rapport.</div>
     <div id="momBody"></div>
   </div>
 
@@ -439,7 +439,7 @@ function liveTick(live,D){
       const prev=window._impulse;window._impulse={dir,t:now,move:mv};
       // alerte si la poussée va dans le sens du biais momentum, en session NY (nouveau signal)
       if(typeof momentumState==='function'){const m=momentumState(window._D||D);
-        if(m.ny&&m.align){const id=dir+Math.round(now/20000);
+        if(m.ny&&m.entryOk&&m.align){const id=dir+Math.round(now/20000);
           if(window._lastImp!==id){window._lastImp=id;_notify('DROGO FI · Poussée '+m.dir,'Momentum NY — entrée de continuation possible · stop 35 / cible 3R');if(_soundOn)_bell();}}}
     }}})();
   // accumulation footprint tick-rule (proxy 2s)
@@ -872,6 +872,10 @@ function nyNow(){try{const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/
   let h=0,mi=0,wd='';for(const x of p){if(x.type==='hour')h=+x.value;if(x.type==='minute')mi=+x.value;if(x.type==='weekday')wd=x.value;}
   return {mins:(h%24)*60+mi,wd};}catch(e){return{mins:-1,wd:''}}}
 function inNY(){const {mins,wd}=nyNow();if(wd==='Sat'||wd==='Sun')return false;return mins>=570&&mins<960;}  // 09:30-16:00 ET
+function morningOnly(){return localStorage.getItem('drogo_mornOnly')!=='0';}  // v2 : défaut ON
+function inEntryWindow(){const {mins,wd}=nyNow();if(wd==='Sat'||wd==='Sun')return false;
+  const last=morningOnly()?720:957;  // entrées 09:45→12:00 ET (v2) ou toute la session
+  return mins>=585&&mins<=last;}
 function momentumState(D){
   const tf=D.candlesTF&&D.candlesTF['1d']; const open=(tf&&tf.length)?tf[tf.length-1].o:D.vwap;
   const up=D.vwap>=open, dir=up?'LONG':'SHORT';
@@ -879,15 +883,16 @@ function momentumState(D){
   const stop=up?+(price-35).toFixed(1):+(price+35).toFixed(1);
   const target=up?+(price+105).toFixed(1):+(price-105).toFixed(1);
   const imp=window._impulse; const align=!!(imp&&((up&&imp.dir==='up')||(!up&&imp.dir==='down'))&&(Date.now()-imp.t<25000));
-  return {dir,up,price,stop,target,ny:inNY(),align,imp,open};
+  return {dir,up,price,stop,target,ny:inNY(),entryOk:inEntryWindow(),align,imp,open};
 }
 function renderMomentum(D){
   const el=document.getElementById('momBody');if(!el)return;
   const m=momentumState(D);
   const dCol=m.up?'var(--bull)':'var(--bear)';
   const state = !m.ny ? '<span style="color:var(--faint)">Hors session NY — signal inactif</span>'
+    : !m.entryOk ? '<span style="color:var(--faint)">Fenêtre d\'entrée fermée ('+(morningOnly()?'09:45–12:00 ET':'09:45–15:57 ET')+') — gestion des positions seulement</span>'
     : m.align ? '<b style="color:'+dCol+'">⚡ POUSSÉE '+m.dir+' détectée — entrée de continuation</b>'
-    : '<span style="color:var(--dim)">Session NY ouverte · biais <b style="color:'+dCol+'">'+m.dir+'</b> · j\'attends une poussée dans le sens</span>';
+    : '<span style="color:var(--dim)">Fenêtre d\'entrée ouverte · biais <b style="color:'+dCol+'">'+m.dir+'</b> · j\'attends une poussée dans le sens</span>';
   el.innerHTML=`
    <div style="display:flex;gap:1.4rem;flex-wrap:wrap;align-items:baseline;margin-bottom:.7rem">
      <span style="font-family:var(--mono);font-weight:700;color:${dCol};font-size:1.05rem">Biais ${m.dir}</span>
@@ -900,10 +905,13 @@ function renderMomentum(D){
      <div><div style="font-size:.64rem;color:var(--faint);text-transform:uppercase">Cible 3R</div><div style="font-size:1.15rem;color:var(--blue)">${num(m.target)}</div></div>
      <div><div style="font-size:.64rem;color:var(--faint);text-transform:uppercase">R:R</div><div style="font-size:1.15rem">3.0</div></div>
    </div>
-   <button id="takeMom" class="rbtn" ${(!m.ny)?'disabled style="opacity:.5;border-color:'+dCol+';color:'+dCol+'"':'style="border-color:'+dCol+';color:'+dCol+'"'}>▶ Prendre momentum ${m.dir}</button>
-   <span style="font-size:.74rem;color:var(--faint);margin-left:.7rem">Suit la tendance, jamais à contre-sens. ~1,3 trade/jour en moyenne.</span>`;
+   <button id="takeMom" class="rbtn" ${(!m.ny||!m.entryOk)?'disabled style="opacity:.5;border-color:'+dCol+';color:'+dCol+'"':'style="border-color:'+dCol+';color:'+dCol+'"'}>▶ Prendre momentum ${m.dir}</button>
+   <label style="font-size:.74rem;color:var(--dim);margin-left:.7rem;cursor:pointer"><input type="checkbox" id="mornToggle" ${morningOnly()?'checked':''} style="vertical-align:-2px"> Matinée seulement (v2, recommandé)</label>
+   <div style="font-size:.74rem;color:var(--faint);margin-top:.5rem">Suit la tendance, jamais à contre-sens. Max 2 trades/jour · WR ~30% assumé : 3R compense — ne pas « améliorer » le winrate en coupant les gains.</div>`;
   const b=document.getElementById('takeMom');
   if(b)b.onclick=()=>openPosition({dir:m.dir,entry:m.price,stop:m.stop,target:m.target,tag:'Momentum NY'});
+  const mt=document.getElementById('mornToggle');
+  if(mt)mt.onchange=e=>{localStorage.setItem('drogo_mornOnly',e.target.checked?'1':'0');renderMomentum(window._D||D);};
 }
 // ===== Footprint tick-rule (proxy live) + DOM carnet de niveaux =====
 function renderFootprint(D){
